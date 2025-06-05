@@ -2,27 +2,27 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 import re
-from streamlit_autorefresh import st_autorefresh  # type: ignore # ← Added for auto-refresh
+from streamlit_autorefresh import st_autorefresh
 
 # --- App Config ---
 st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
 
 # --- File Paths ---
-REQUESTS_FILE = "requests.json"
+EXCEL_FILE = "requests.xlsx"
 COMMENTS_FILE = "comments.json"
 
 # --- Helper: Colored Status Badge ---
 def format_status_badge(status):
     status = status.upper()
     color_map = {
-        "PENDING": "#f39c12",         # Orange
-        "READY": "#2ecc71",            # Green
-        "IN TRANSIT": "#3498db",       # Light Blue
-        "ORDERED": "#9b59b6",          # Purple
-        "INCOMPLETE": "#e67e22",       # Dark Orange
-        "CANCELLED": "#e74c3c",        # Red
+        "PENDING": "#f39c12",
+        "READY": "#2ecc71",
+        "IN TRANSIT": "#3498db",
+        "ORDERED": "#9b59b6",
+        "INCOMPLETE": "#e67e22",
+        "CANCELLED": "#e74c3c",
     }
     color = color_map.get(status, "#7f8c8d")  # Default: Gray
     return f"""
@@ -37,25 +37,120 @@ def format_status_badge(status):
     ">{status}</span>
     """
 
-# --- Persistence ---
+# --- Persistence (Excel-backed) ---
 def load_data():
-    if os.path.exists(REQUESTS_FILE):
-        with open(REQUESTS_FILE, "r") as f:
-            st.session_state.requests = json.load(f)
+    """
+    Load requests from Excel into st.session_state.requests,
+    parsing 'Description' and 'Quantity' JSON-strings back into Python lists.
+    """
+    # Initialize or clear the requests list
+    st.session_state.requests = []
+
+    if os.path.exists(EXCEL_FILE):
+        try:
+            # Read Excel, treating Description and Quantity as plain strings
+            df = pd.read_excel(
+                EXCEL_FILE,
+                sheet_name=0,
+                dtype={
+                    "Description": str,
+                    "Quantity": str
+                }
+            )
+        except Exception as e:
+            st.error(f"Could not read '{EXCEL_FILE}': {e}")
+            return
+
+        # If the file is empty or has no rows, skip parsing
+        if df.empty:
+            return
+
+        for _, row in df.iterrows():
+            # Helper to parse a JSON-encoded cell into a Python list (or fallback)
+            def parse_list(cell_value):
+                if isinstance(cell_value, str):
+                    cell_value = cell_value.strip()
+                    # Only attempt json.loads if it looks like a JSON list (starts with '[' or '{')
+                    if cell_value.startswith("[") or cell_value.startswith("{"):
+                        try:
+                            return json.loads(cell_value)
+                        except Exception:
+                            # If parsing fails, return empty list
+                            return []
+                # If it's not a string or not JSON, return empty list
+                return []
+
+            parsed_description = parse_list(row.get("Description", ""))
+            parsed_quantity    = parse_list(row.get("Quantity", ""))
+
+            req = {
+                "Type": row.get("Type", "") or "",
+                "Order#": row.get("Order#", "") or "",
+                "Invoice": row.get("Invoice", "") or "",
+                "Date": row.get("Date", "") or "",
+                "Status": row.get("Status", "") or "",
+                "Shipping Method": row.get("Shipping Method", "") or "",
+                "ETA Date": row.get("ETA Date", "") or "",
+                "Description": parsed_description,
+                "Quantity": parsed_quantity,
+                "Proveedor": row.get("Proveedor", "") if "Proveedor" in row else None,
+                "Cliente": row.get("Cliente", "") if "Cliente" in row else None,
+                "Encargado": row.get("Encargado", "") or "",
+                "Pago": row.get("Pago", "") or ""
+            }
+            st.session_state.requests.append(req)
     else:
+        # If the Excel file does not exist yet, initialize an empty list
         st.session_state.requests = []
 
+    # --- Load comments from JSON ---
     if os.path.exists(COMMENTS_FILE):
-        with open(COMMENTS_FILE, "r") as f:
-            st.session_state.comments = json.load(f)
+        try:
+            with open(COMMENTS_FILE, "r") as f:
+                st.session_state.comments = json.load(f)
+        except Exception:
+            st.session_state.comments = {}
     else:
         st.session_state.comments = {}
 
+
 def save_data():
-    with open(REQUESTS_FILE, "w") as f:
-        json.dump(st.session_state.requests, f)
-    with open(COMMENTS_FILE, "w") as f:
-        json.dump(st.session_state.comments, f)
+    """
+    Save st.session_state.requests back to Excel, JSON-encoding Description/Quantity.
+    Also persist comments to JSON.
+    """
+    records = []
+    for req in st.session_state.requests:
+        record = {
+            "Type": req.get("Type", ""),
+            "Order#": req.get("Order#", ""),
+            "Invoice": req.get("Invoice", ""),
+            "Date": req.get("Date", ""),
+            "Status": req.get("Status", ""),
+            "Shipping Method": req.get("Shipping Method", ""),
+            "ETA Date": req.get("ETA Date", ""),
+            # JSON-encode lists (or empty lists) for Description/Quantity
+            "Description": json.dumps(req.get("Description", [])),
+            "Quantity": json.dumps(req.get("Quantity", [])),
+            "Proveedor": req.get("Proveedor", "") if req.get("Type") == "💲" else "",
+            "Cliente": req.get("Cliente", "") if req.get("Type") == "🛒" else "",
+            "Encargado": req.get("Encargado", ""),
+            "Pago": req.get("Pago", "")
+        }
+        records.append(record)
+
+    df = pd.DataFrame(records)
+    try:
+        df.to_excel(EXCEL_FILE, index=False)
+    except Exception as e:
+        st.error(f"Could not write to '{EXCEL_FILE}': {e}")
+
+    # Save comments
+    try:
+        with open(COMMENTS_FILE, "w") as f:
+            json.dump(st.session_state.comments, f)
+    except Exception as e:
+        st.error(f"Could not write to '{COMMENTS_FILE}': {e}")
 
 # --- Navigation + State ---
 if "page" not in st.session_state:
@@ -86,7 +181,7 @@ def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        # Re-index comments
+        # Re-index remaining comments
         st.session_state.comments = {
             str(i): st.session_state.comments.get(str(i), [])
             for i in range(len(st.session_state.requests))
@@ -95,6 +190,15 @@ def delete_request(index):
         save_data()
         st.success("🗑️ Request deleted successfully.")
         go_to("requests")
+
+# --- Sort Requests by ETA Date ---
+def sort_requests_by_eta(requests):
+    def parse_eta(req):
+        try:
+            return datetime.strptime(req.get("ETA Date", "9999-12-31"), "%Y-%m-%d")
+        except:
+            return datetime(9999, 12, 31)
+    return sorted(requests, key=parse_eta)
 
 # --- Home Page ---
 if st.session_state.page == "home":
@@ -148,9 +252,8 @@ if st.session_state.page == "home":
         if st.button("📋 View All Requests", use_container_width=True):
             go_to("requests")
 
+# --- Purchase Request Page ---
 elif st.session_state.page == "purchase":
-    import pandas as pd
-
     st.markdown("## 💲 Purchase Request Form")
 
     # --- Global Styles ---
@@ -310,9 +413,8 @@ elif st.session_state.page == "purchase":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
+# --- Sales Order Request Page ---
 elif st.session_state.page == "sales_order":
-    import pandas as pd
-
     st.markdown("## 🛒 Sales Order Request Form")
 
     # --- Global Styles ---
@@ -473,11 +575,12 @@ elif st.session_state.page == "sales_order":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
+# --- All Requests Page (Excel-backed) ---
 elif st.session_state.page == "requests":
-    # --- Auto-refresh every 5 seconds ---
-    _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
+    # --- Auto-refresh every 1 second ---
+    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
 
-    # --- Re-load data from disk so we see the latest requests ---
+    # --- Re-load data from Excel so we see the latest requests ---
     load_data()
 
     st.header("📋 All Requests")
@@ -511,6 +614,9 @@ elif st.session_state.page == "requests":
         )
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
+
+    # --- Sort the filtered requests by ETA Date (soonest first) ---
+    filtered_requests = sort_requests_by_eta(filtered_requests)
 
     if filtered_requests:
         # --- Table Header Styling (make headers larger) ---
@@ -584,6 +690,7 @@ elif st.session_state.page == "requests":
     if st.button("⬅ Back to Home"):
         go_to("home")
 
+# --- Detail Page ---
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
     index = st.session_state.selected_request
@@ -766,7 +873,7 @@ elif st.session_state.page == "detail":
                 st.session_state.requests[index] = request
                 save_data()
                 st.success("✅ Changes saved.")
-                st.experimental_rerun()
+                st.rerun()
 
         with col_delete:
             if st.button("🗑️ Delete Request", use_container_width=True):
@@ -786,7 +893,7 @@ elif st.session_state.page == "detail":
             if new_comment.strip():
                 add_comment(index, "User", new_comment.strip())
                 st.success("✅ Comment added.")
-                st.experimental_rerun()
+                st.rerun()
 
     else:
         st.error("Invalid request selected.")
