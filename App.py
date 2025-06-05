@@ -611,6 +611,15 @@ elif st.session_state.page == "requests":
 
     st.header("📋 All Requests")
 
+    # If there are any requests in memory, let the user know they are stored to Excel
+    if st.session_state.requests:
+        st.info(
+            "✅ The request rows you see below have already been saved to "
+            f"'{EXCEL_FILE}' on disk."
+        )
+    else:
+        st.warning("No saved requests found in the Excel file.")
+
     # Filters: Search / Status / Type
     col1, col2, col3 = st.columns([3, 2, 2])
     with col1:
@@ -708,7 +717,7 @@ elif st.session_state.page == "requests":
                     st.session_state.selected_request = full_index
                     go_to("detail")
     else:
-        st.warning("No matching requests found.")
+        st.warning("No matching requests found for the selected filters.")
 
     if st.button("⬅ Back to Home"):
         go_to("home")
@@ -927,3 +936,4 @@ elif st.session_state.page == "detail":
 
     else:
         st.error("Invalid request selected.")
+
