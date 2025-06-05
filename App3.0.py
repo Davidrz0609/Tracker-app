@@ -10,7 +10,7 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
 
 # --- File Paths ---
-REQUESTS_FILE = "requests.json"
+EXCEL_FILE = "requests.xlsx"
 COMMENTS_FILE = "comments.json"
 
 # --- Helper: Colored Status Badge ---
@@ -24,7 +24,7 @@ def format_status_badge(status):
         "INCOMPLETE": "#e67e22",
         "CANCELLED": "#e74c3c",
     }
-    color = color_map.get(status, "#7f8c8d")
+    color = color_map.get(status, "#7f8c8d")  # Default: Gray
     return f"""
     <span style="
         background-color: {color};
@@ -36,22 +36,37 @@ def format_status_badge(status):
         display: inline-block;
     ">{status}</span>
     """
-def sort_requests_by_eta(requests):
-    def parse_eta(req):
-        try:
-            return datetime.strptime(req.get("ETA Date", "9999-12-31"), "%Y-%m-%d")
-        except:
-            return datetime(9999, 12, 31)
-    return sorted(requests, key=parse_eta)
 
-# --- Persistence ---
+# --- Persistence (Excel-backed) ---
 def load_data():
-    if os.path.exists(REQUESTS_FILE):
-        with open(REQUESTS_FILE, "r") as f:
-            st.session_state.requests = json.load(f)
+    # Load requests from Excel
+    if os.path.exists(EXCEL_FILE):
+        df = pd.read_excel(
+            EXCEL_FILE,
+            converters={'Description': json.loads, 'Quantity': json.loads}
+        )
+        st.session_state.requests = []
+        for _, row in df.iterrows():
+            req = {
+                "Type": row.get("Type", ""),
+                "Order#": row.get("Order#", ""),
+                "Invoice": row.get("Invoice", ""),
+                "Date": row.get("Date", ""),
+                "Status": row.get("Status", ""),
+                "Shipping Method": row.get("Shipping Method", ""),
+                "ETA Date": row.get("ETA Date", ""),
+                "Description": row.get("Description", []),
+                "Quantity": row.get("Quantity", []),
+                "Proveedor": row.get("Proveedor", "") if "Proveedor" in row else None,
+                "Cliente": row.get("Cliente", "") if "Cliente" in row else None,
+                "Encargado": row.get("Encargado", ""),
+                "Pago": row.get("Pago", "")
+            }
+            st.session_state.requests.append(req)
     else:
         st.session_state.requests = []
 
+    # Load comments
     if os.path.exists(COMMENTS_FILE):
         with open(COMMENTS_FILE, "r") as f:
             st.session_state.comments = json.load(f)
@@ -59,8 +74,29 @@ def load_data():
         st.session_state.comments = {}
 
 def save_data():
-    with open(REQUESTS_FILE, "w") as f:
-        json.dump(st.session_state.requests, f)
+    # Save requests to Excel
+    records = []
+    for req in st.session_state.requests:
+        record = {
+            "Type": req.get("Type", ""),
+            "Order#": req.get("Order#", ""),
+            "Invoice": req.get("Invoice", ""),
+            "Date": req.get("Date", ""),
+            "Status": req.get("Status", ""),
+            "Shipping Method": req.get("Shipping Method", ""),
+            "ETA Date": req.get("ETA Date", ""),
+            "Description": json.dumps(req.get("Description", [])),
+            "Quantity": json.dumps(req.get("Quantity", [])),
+            "Proveedor": req.get("Proveedor", "") if req.get("Type") == "💲" else "",
+            "Cliente": req.get("Cliente", "") if req.get("Type") == "🛒" else "",
+            "Encargado": req.get("Encargado", ""),
+            "Pago": req.get("Pago", "")
+        }
+        records.append(record)
+    df = pd.DataFrame(records)
+    df.to_excel(EXCEL_FILE, index=False)
+
+    # Save comments
     with open(COMMENTS_FILE, "w") as f:
         json.dump(st.session_state.comments, f)
 
@@ -93,6 +129,7 @@ def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
+        # Re-index remaining comments
         st.session_state.comments = {
             str(i): st.session_state.comments.get(str(i), [])
             for i in range(len(st.session_state.requests))
@@ -101,6 +138,15 @@ def delete_request(index):
         save_data()
         st.success("🗑️ Request deleted successfully.")
         go_to("requests")
+
+# --- Sort Requests by ETA Date ---
+def sort_requests_by_eta(requests):
+    def parse_eta(req):
+        try:
+            return datetime.strptime(req.get("ETA Date", "9999-12-31"), "%Y-%m-%d")
+        except:
+            return datetime(9999, 12, 31)
+    return sorted(requests, key=parse_eta)
 
 # --- Home Page ---
 if st.session_state.page == "home":
@@ -154,9 +200,8 @@ if st.session_state.page == "home":
         if st.button("📋 View All Requests", use_container_width=True):
             go_to("requests")
 
+# --- Purchase Request Page ---
 elif st.session_state.page == "purchase":
-    import pandas as pd
-
     st.markdown("## 💲 Purchase Request Form")
 
     # --- Global Styles ---
@@ -316,9 +361,8 @@ elif st.session_state.page == "purchase":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
+# --- Sales Order Request Page ---
 elif st.session_state.page == "sales_order":
-    import pandas as pd
-
     st.markdown("## 🛒 Sales Order Request Form")
 
     # --- Global Styles ---
@@ -479,13 +523,12 @@ elif st.session_state.page == "sales_order":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
-#####
-
+# --- All Requests Page (Excel-backed) ---
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 1 second ---
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
 
-    # --- Re-load data from disk so we see the latest requests ---
+    # --- Re-load data from Excel so we see the latest requests ---
     load_data()
 
     st.header("📋 All Requests")
@@ -520,7 +563,7 @@ elif st.session_state.page == "requests":
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
 
-    # --- Sort the filtered list by ETA Date (soonest first) ---
+    # --- Sort the filtered requests by ETA Date (soonest first) ---
     filtered_requests = sort_requests_by_eta(filtered_requests)
 
     if filtered_requests:
@@ -595,7 +638,7 @@ elif st.session_state.page == "requests":
     if st.button("⬅ Back to Home"):
         go_to("home")
 
-
+# --- Detail Page ---
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
     index = st.session_state.selected_request
@@ -798,7 +841,7 @@ elif st.session_state.page == "detail":
             if new_comment.strip():
                 add_comment(index, "User", new_comment.strip())
                 st.success("✅ Comment added.")
-                st.experimental_rerun()
+                st.rerun()
 
     else:
         st.error("Invalid request selected.")
