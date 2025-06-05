@@ -17,14 +17,14 @@ COMMENTS_FILE = "comments.json"
 def format_status_badge(status):
     status = status.upper()
     color_map = {
-        "PENDING": "#f39c12",         # Orange
-        "READY": "#2ecc71",            # Green
-        "IN TRANSIT": "#3498db",       # Light Blue
-        "ORDERED": "#9b59b6",          # Purple
-        "INCOMPLETE": "#e67e22",       # Dark Orange
-        "CANCELLED": "#e74c3c",        # Red
+        "PENDING": "#f39c12",
+        "READY": "#2ecc71",
+        "IN TRANSIT": "#3498db",
+        "ORDERED": "#9b59b6",
+        "INCOMPLETE": "#e67e22",
+        "CANCELLED": "#e74c3c",
     }
-    color = color_map.get(status, "#7f8c8d")  # Default: Gray
+    color = color_map.get(status, "#7f8c8d")
     return f"""
     <span style="
         background-color: {color};
@@ -86,7 +86,6 @@ def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        # Re-index comments
         st.session_state.comments = {
             str(i): st.session_state.comments.get(str(i), [])
             for i in range(len(st.session_state.requests))
@@ -475,7 +474,7 @@ elif st.session_state.page == "sales_order":
 
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 5 seconds ---
-    _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
+    _ = st_autorefresh(interval=100, limit=None, key="requests_refresh")
 
     # --- Re-load data from disk so we see the latest requests ---
     load_data()
@@ -766,7 +765,7 @@ elif st.session_state.page == "detail":
                 st.session_state.requests[index] = request
                 save_data()
                 st.success("✅ Changes saved.")
-                st.experimental_rerun()
+                st.rerun()
 
         with col_delete:
             if st.button("🗑️ Delete Request", use_container_width=True):
