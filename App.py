@@ -5,7 +5,7 @@ import os
 from datetime import date
 import re
 from streamlit_autorefresh import st_autorefresh
-from io import BytesIO  # ← Added for Excel export
+from io import BytesIO  # ← already in place, but we’ll write directly to disk now
 
 # --- App Config ---
 st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
@@ -13,19 +13,20 @@ st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_ic
 # --- File Paths ---
 REQUESTS_FILE = "requests.json"
 COMMENTS_FILE = "comments.json"
+EXPORT_FILE = "all_requests.xlsx"   # ← this file will be overwritten each time
 
 # --- Helper: Colored Status Badge ---
 def format_status_badge(status):
     status = status.upper()
     color_map = {
-        "PENDING": "#f39c12",         # Orange
-        "READY": "#2ecc71",            # Green
-        "IN TRANSIT": "#3498db",       # Light Blue
-        "ORDERED": "#9b59b6",          # Purple
-        "INCOMPLETE": "#e67e22",       # Dark Orange
-        "CANCELLED": "#e74c3c",        # Red
+        "PENDING": "#f39c12",
+        "READY": "#2ecc71",
+        "IN TRANSIT": "#3498db",
+        "ORDERED": "#9b59b6",
+        "INCOMPLETE": "#e67e22",
+        "CANCELLED": "#e74c3c",
     }
-    color = color_map.get(status, "#7f8c8d")  # Default: Gray
+    color = color_map.get(status, "#7f8c8d")
     return f"""
     <span style="
         background-color: {color};
@@ -38,8 +39,9 @@ def format_status_badge(status):
     ">{status}</span>
     """
 
-# --- Persistence ---
+# --- Persistence Helpers ---
 def load_data():
+    """Load requests & comments JSON into session_state."""
     if os.path.exists(REQUESTS_FILE):
         with open(REQUESTS_FILE, "r") as f:
             st.session_state.requests = json.load(f)
@@ -53,16 +55,46 @@ def load_data():
         st.session_state.comments = {}
 
 def save_data():
+    """Save requests & comments back to disk and re-export Excel."""
     with open(REQUESTS_FILE, "w") as f:
         json.dump(st.session_state.requests, f)
     with open(COMMENTS_FILE, "w") as f:
         json.dump(st.session_state.comments, f)
+    export_all_requests_to_excel()  # ← regenerate Excel on every save
+
+def export_all_requests_to_excel():
+    """
+    Take st.session_state.requests, flatten list-fields,
+    write them into EXPORT_FILE (overwriting any prior file).
+    """
+    if not st.session_state.requests:
+        # If there are no requests, we can write an empty DataFrame (or simply delete the file).
+        empty_df = pd.DataFrame()
+        empty_df.to_excel(EXPORT_FILE, index=False)
+        return
+
+    flattened_rows = []
+    for req in st.session_state.requests:
+        row = req.copy()
+        # Convert list fields to comma-separated strings
+        if isinstance(row.get("Description"), list):
+            row["Description"] = ", ".join(row["Description"])
+        if isinstance(row.get("Quantity"), list):
+            row["Quantity"] = ", ".join(str(q) for q in row["Quantity"])
+        flattened_rows.append(row)
+
+    df_all = pd.DataFrame(flattened_rows)
+    # Overwrite the same file each time
+    df_all.to_excel(EXPORT_FILE, index=False)
+
 
 # --- Navigation + State ---
 if "page" not in st.session_state:
     st.session_state.page = "home"
 if "requests" not in st.session_state or "comments" not in st.session_state:
     load_data()
+    # Ensure that an initial export exists, even if empty:
+    export_all_requests_to_excel()
 if "selected_request" not in st.session_state:
     st.session_state.selected_request = None
 
@@ -87,7 +119,7 @@ def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        # Re-index comments
+        # Re-index comments so keys remain 0,1,2...
         st.session_state.comments = {
             str(i): st.session_state.comments.get(str(i), [])
             for i in range(len(st.session_state.requests))
@@ -97,9 +129,10 @@ def delete_request(index):
         st.success("🗑️ Request deleted successfully.")
         go_to("requests")
 
-# --- Home Page ---
+
+# --- HOME PAGE ---
 if st.session_state.page == "home":
-    # --- Global Styling ---
+    # Global styling
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -127,11 +160,11 @@ if st.session_state.page == "home":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Section Header ---
+    # Header
     st.markdown("## 🏠 Welcome to the Help Center")
     st.markdown("### What can we help you with today?")
 
-    # --- Main Navigation ---
+    # Navigation buttons
     with st.container():
         col1, col2 = st.columns(2)
         with col1:
@@ -141,14 +174,14 @@ if st.session_state.page == "home":
             if st.button("🛒 Sales Order Request", use_container_width=True):
                 go_to("sales_order")
 
-    # --- Divider ---
     st.markdown("<hr style='margin: 2rem 0;'>", unsafe_allow_html=True)
 
-    # --- All Requests Navigation ---
     with st.container():
         if st.button("📋 View All Requests", use_container_width=True):
             go_to("requests")
 
+
+# --- PURCHASE REQUEST FORM ---
 elif st.session_state.page == "purchase":
     import pandas as pd
 
@@ -174,13 +207,12 @@ elif st.session_state.page == "purchase":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Initialize session‐state containers if not already set ---
+    # Initialize dynamic rows
     if "purchase_item_rows" not in st.session_state:
         st.session_state.purchase_item_rows = 1
     st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
 
-    # ------------------------------------------------------------------
-    # --- 1) FORM FIELDS (manual input only) ---
+    # 1) Order Information
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
@@ -213,12 +245,10 @@ elif st.session_state.page == "purchase":
             [" ", "Wire", "Cheque", "Credito", "Efectivo"]
         )
 
-    # ------------------------------------------------------------------
-    # --- 2) ITEM ROWS (dynamic manual input) ---
+    # 2) Items to Order (dynamic)
     st.markdown("### 🧾 Items to Order")
     descriptions = []
     quantities = []
-
     for i in range(st.session_state.purchase_item_rows):
         colA, colB = st.columns(2)
         descriptions.append(
@@ -236,7 +266,6 @@ elif st.session_state.page == "purchase":
             )
         )
 
-    # ──────────── “Add/Remove” BUTTONS BELOW ITEMS ────────────
     col_add, col_remove = st.columns([1, 1])
     with col_add:
         if st.button("➕ Add another item", key="add_purchase"):
@@ -247,10 +276,8 @@ elif st.session_state.page == "purchase":
             and st.button("❌ Remove last item", key="remove_purchase")
         ):
             st.session_state.purchase_item_rows -= 1
-    # ──────────────────────────────────────────────────────────
 
-    # ------------------------------------------------------------------
-    # --- 3) SHIPPING INFORMATION ---
+    # 3) Shipping Information
     st.markdown("### 🚚 Shipping Information")
     col3, col4 = st.columns(2)
     with col3:
@@ -265,8 +292,7 @@ elif st.session_state.page == "purchase":
         [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"]
     )
 
-    # ------------------------------------------------------------------
-    # --- 4) SUBMIT + BACK BUTTONS ---
+    # 4) Submit / Back
     st.markdown("---")
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
@@ -311,6 +337,8 @@ elif st.session_state.page == "purchase":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
+
+# --- SALES ORDER REQUEST FORM ---
 elif st.session_state.page == "sales_order":
     import pandas as pd
 
@@ -336,14 +364,12 @@ elif st.session_state.page == "sales_order":
     </style>
     """, unsafe_allow_html=True)
 
-    # ------------------------------------------------------------------
-    # Initialize session‐state containers if not already set
+    # Initialize dynamic rows
     if "invoice_item_rows" not in st.session_state:
         st.session_state.invoice_item_rows = 1
     st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
 
-    # ------------------------------------------------------------------
-    # --- 1) FORM FIELDS (fully manual; no PDF upload) ---
+    # 1) Order Information
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
@@ -376,12 +402,10 @@ elif st.session_state.page == "sales_order":
             [" ", "Wire", "Cheque", "Credito", "Efectivo"]
         )
 
-    # ------------------------------------------------------------------
-    # --- 2) ITEM ROWS (dynamic manual input) ---
+    # 2) Items to Invoice (dynamic)
     st.markdown("### 🧾 Items to Invoice")
     descriptions = []
     quantities = []
-
     for i in range(st.session_state.invoice_item_rows):
         colA, colB = st.columns(2)
         descriptions.append(
@@ -399,7 +423,6 @@ elif st.session_state.page == "sales_order":
             )
         )
 
-    # ──────────── “Add/Remove” BUTTONS BELOW ITEMS ────────────
     col_add, col_remove = st.columns([1, 1])
     with col_add:
         if st.button("➕ Add another item", key="add_invoice"):
@@ -410,10 +433,8 @@ elif st.session_state.page == "sales_order":
             and st.button("❌ Remove last item", key="remove_invoice")
         ):
             st.session_state.invoice_item_rows -= 1
-    # ──────────────────────────────────────────────────────────
 
-    # ------------------------------------------------------------------
-    # --- 3) SHIPPING INFORMATION ---
+    # 3) Shipping Information
     st.markdown("### 🚚 Shipping Information")
     col3, col4 = st.columns(2)
     with col3:
@@ -428,8 +449,7 @@ elif st.session_state.page == "sales_order":
         [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"]
     )
 
-    # ------------------------------------------------------------------
-    # --- 4) SUBMIT + BACK BUTTONS ---
+    # 4) Submit / Back
     st.markdown("---")
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
@@ -474,57 +494,28 @@ elif st.session_state.page == "sales_order":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
+
+# --- VIEW / FILTER ALL REQUESTS ---
 elif st.session_state.page == "requests":
-    # --- Auto-refresh every 5 seconds ---
+    # Auto‐refresh every 5 seconds so multiple users see changes
     _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
 
-    # --- Re-load data from disk so we see the latest requests ---
+    # Re-load data from disk
     load_data()
 
     st.header("📋 All Requests")
 
-    # === NEW: Download All Requests as Excel ===
-    # Prepare a DataFrame for every stored request, flattening list‐fields into comma‐separated strings:
-    if st.session_state.requests:
-        flattened_rows = []
-        for req in st.session_state.requests:
-            row = req.copy()
-            # Convert list fields to comma-separated strings
-            if isinstance(row.get("Description"), list):
-                row["Description"] = ", ".join(row["Description"])
-            if isinstance(row.get("Quantity"), list):
-                row["Quantity"] = ", ".join(str(q) for q in row["Quantity"])
-            flattened_rows.append(row)
-
-        df_all = pd.DataFrame(flattened_rows)
-
-        # Convert DataFrame to Excel bytes
-        buffer = BytesIO()
-        df_all.to_excel(buffer, index=False)
-        buffer.seek(0)
-        excel_bytes = buffer.getvalue()
-
-        st.download_button(
-            label="🔽 Download All Requests as Excel",
-            data=excel_bytes,
-            file_name="all_requests.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.info("No requests available yet to download.")
+    # (Note: Excel is already being saved server‐side on each change, so no download button here.)
 
     # --- Filters ---
     col1, col2, col3 = st.columns([3, 2, 2])
-
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests...")
-
     with col2:
         status_filter = st.selectbox(
             "Status",
             ["All", "PENDING", "IN TRANSIT", "READY", "CANCELLED", "CONFIRMED", "INCOMPLETE"]
         )
-
     with col3:
         type_filter = st.selectbox(
             "Request type",
@@ -544,18 +535,17 @@ elif st.session_state.page == "requests":
             filtered_requests.append(req)
 
     if filtered_requests:
-        # --- Table Header Styling (make headers larger) ---
+        # Table Header Styling
         st.markdown("""
         <style>
         .header-row {
             font-weight: bold;
-            font-size: 18px;        /* increased font size */
+            font-size: 18px;
             padding: 0.5rem 0;
         }
         </style>
         """, unsafe_allow_html=True)
 
-        # --- Table Header ---
         header_cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
         headers = [
             "Type", "Ref#", "Description", "Qty", "Status",
@@ -564,47 +554,33 @@ elif st.session_state.page == "requests":
         for col, header in zip(header_cols, headers):
             col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
 
-        # --- Table Rows ---
+        # Table Rows
         for i, req in enumerate(filtered_requests):
             with st.container():
                 cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
 
-                # 1) Type (icon)
                 cols[0].write(req.get("Type", ""))
-
-                # 2) Ref#: prefer "Order#", but fall back to "Invoice"
                 ref_val = req.get("Order#", "") or req.get("Invoice", "")
                 cols[1].write(ref_val)
 
-                # 3) Description (join list if needed)
                 desc_list = req.get("Description", [])
                 desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
                 cols[2].write(desc_display)
 
-                # 4) Quantity (join list if needed)
                 qty_list = req.get("Quantity", [])
                 qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list := req.get("Quantity", []), list) else str(qty_list)
                 cols[3].write(qty_display)
 
-                # 5) Status badge
                 cols[4].markdown(
                     format_status_badge(req.get("Status", "")),
                     unsafe_allow_html=True
                 )
 
-                # 6) Ordered Date
                 cols[5].write(req.get("Date", ""))
-
-                # 7) ETA Date
                 cols[6].write(req.get("ETA Date", ""))
-
-                # 8) Shipping Method
                 cols[7].write(req.get("Shipping Method", ""))
-
-                # 9) Encargado
                 cols[8].write(req.get("Encargado", ""))
 
-                # 10) “View” button → go to detail
                 if cols[9].button("🔍", key=f"view_{i}"):
                     full_index = st.session_state.requests.index(req)
                     st.session_state.selected_request = full_index
@@ -615,11 +591,13 @@ elif st.session_state.page == "requests":
     if st.button("⬅ Back to Home"):
         go_to("home")
 
+
+# --- REQUEST DETAILS PAGE ---
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
     index = st.session_state.selected_request
 
-    # --- Global Styles ---
+    # Global Styles
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -643,17 +621,15 @@ elif st.session_state.page == "detail":
         request = st.session_state.requests[index]
         updated_fields = {}
 
-        # Determine if this is a Purchase (💲) or Sales (🛒) order
         is_purchase = (request.get("Type") == "💲")
         is_sales = (request.get("Type") == "🛒")
 
-        # --- 1) Order Information ---
+        # 1) Order Information
         with st.container():
             st.markdown("### 📄 Order Information")
             col1, col2 = st.columns(2)
 
             with col1:
-                # Ref# / Order#
                 order_number_val = request.get("Order#", "")
                 order_number = st.text_input(
                     "Ref#",
@@ -663,7 +639,6 @@ elif st.session_state.page == "detail":
                 if order_number != order_number_val:
                     updated_fields["Order#"] = order_number
 
-                # Dynamic rows for Description & Quantity
                 desc_list = request.get("Description", [])
                 qty_list = request.get("Quantity", [])
                 num_rows = max(len(desc_list), len(qty_list), 1)
@@ -697,7 +672,6 @@ elif st.session_state.page == "detail":
                 if new_quantities != qty_list:
                     updated_fields["Quantity"] = new_quantities
 
-                # Status
                 status_options = [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
                 current_status = request.get("Status", " ")
                 if current_status not in status_options:
@@ -712,7 +686,6 @@ elif st.session_state.page == "detail":
                     updated_fields["Status"] = status
 
             with col2:
-                # Tracking# / Invoice
                 invoice_val = request.get("Invoice", "")
                 invoice = st.text_input(
                     "Tracking#",
@@ -722,7 +695,6 @@ elif st.session_state.page == "detail":
                 if invoice != invoice_val:
                     updated_fields["Invoice"] = invoice
 
-                # Proveedor vs Cliente
                 partner_label = "Proveedor" if is_purchase else "Cliente"
                 partner_val = request.get(partner_label, "")
                 partner = st.text_input(
@@ -733,7 +705,6 @@ elif st.session_state.page == "detail":
                 if partner != partner_val:
                     updated_fields[partner_label] = partner
 
-                # Método de Pago
                 pago_val = request.get("Pago", " ")
                 pago = st.selectbox(
                     "Método de Pago",
@@ -744,7 +715,6 @@ elif st.session_state.page == "detail":
                 if pago != pago_val:
                     updated_fields["Pago"] = pago
 
-                # Encargado
                 encargado_val = request.get("Encargado", " ")
                 encargado = st.selectbox(
                     "Encargado",
@@ -755,7 +725,7 @@ elif st.session_state.page == "detail":
                 if encargado != encargado_val:
                     updated_fields["Encargado"] = encargado
 
-        # --- 2) Shipping Information ---
+        # 2) Shipping Information
         with st.container():
             st.markdown("### 🚚 Shipping Information")
             col3, col4 = st.columns(2)
@@ -788,7 +758,7 @@ elif st.session_state.page == "detail":
             if shipping_method != ship_val:
                 updated_fields["Shipping Method"] = shipping_method
 
-        # --- 3) Save, Delete, Back ---
+        # 3) Save / Delete / Back
         st.markdown("---")
         col_save, col_delete, col_back = st.columns([2, 1, 1])
         with col_save:
@@ -807,7 +777,7 @@ elif st.session_state.page == "detail":
             if st.button("⬅ Back to All Requests", use_container_width=True):
                 go_to("requests")
 
-        # --- 4) Comments Section ---
+        # 4) Comments Section
         st.markdown("### 💬 Comments")
         for comment in st.session_state.comments.get(str(index), []):
             st.markdown(f"**{comment['author']}**: {comment['text']}")
