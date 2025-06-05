@@ -48,36 +48,6 @@ def format_status_badge(status):
     """
 
 # --------------------------------------------------------------------------------
-# --- Helper: Display + Download raw Excel --------------------------------------
-# --------------------------------------------------------------------------------
-def display_and_download_excel():
-    """
-    If requests2.0.xlsx exists on disk, read it into a DataFrame, display it,
-    and offer a Download button so the user can open it in Excel locally.
-    """
-    if os.path.exists(EXCEL_FILE):
-        try:
-            df = pd.read_excel(EXCEL_FILE)
-        except Exception as e:
-            st.error(f"Could not read '{EXCEL_FILE}': {e}")
-            return
-
-        st.markdown("#### 📥 Raw Excel contents (you can download and open in Excel below):")
-        st.dataframe(df)  # show a scrollable table
-
-        # Provide a download button. We read the file as bytes so the user can open it in Excel.
-        with open(EXCEL_FILE, "rb") as f:
-            data_bytes = f.read()
-        st.download_button(
-            label="📂 Download Excel (requests2.0.xlsx)",
-            data=data_bytes,
-            file_name=EXCEL_FILE,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.warning(f"Excel file '{EXCEL_FILE}' not found on disk.")
-
-# --------------------------------------------------------------------------------
 # --- Persistence (Excel-backed) -------------------------------------------------
 # --------------------------------------------------------------------------------
 def load_data():
@@ -189,6 +159,7 @@ def save_data():
 # --------------------------------------------------------------------------------
 # --- Navigation + State Initialization ------------------------------------------
 # --------------------------------------------------------------------------------
+# Guarantee that session_state.requests and session_state.comments exist before anything else
 if "requests" not in st.session_state:
     st.session_state.requests = []
 if "comments" not in st.session_state:
@@ -640,20 +611,6 @@ elif st.session_state.page == "requests":
 
     st.header("📋 All Requests")
 
-    # If there are any requests in memory, let the user know they are stored to Excel
-    if st.session_state.requests:
-        st.info(
-            "✅ The request rows you see below have already been saved to "
-            f"'{EXCEL_FILE}' on disk."
-        )
-    else:
-        st.warning("No saved requests found in the Excel file.")
-
-    # ──────────────────────────────────────────────────────
-    # **NEW**: show the raw Excel and a Download button
-    display_and_download_excel()
-    # ──────────────────────────────────────────────────────
-
     # Filters: Search / Status / Type
     col1, col2, col3 = st.columns([3, 2, 2])
     with col1:
@@ -751,7 +708,7 @@ elif st.session_state.page == "requests":
                     st.session_state.selected_request = full_index
                     go_to("detail")
     else:
-        st.warning("No matching requests found for the selected filters.")
+        st.warning("No matching requests found.")
 
     if st.button("⬅ Back to Home"):
         go_to("home")
