@@ -1,25 +1,11 @@
-# Full updated Streamlit app with SharePoint Excel integration
-
 import streamlit as st
 import pandas as pd
 import json
 import os
-from office365.runtime.auth.authentication_context import AuthenticationContext
-from office365.sharepoint.client_context import ClientContext
-from io import BytesIO
-import openpyxl
 from datetime import date
 import PyPDF2
 import pdfplumber
 import re
-
-
-# --- SharePoint Config ---
-SHAREPOINT_SITE = "https://ucf-my.sharepoint.com"
-SHAREPOINT_DOC = "/personal/da660728_ucf_edu/Documents/Tracker Titos/Requests.xlsx"
-USERNAME = "da660728@ucf.edu"
-PASSWORD = "Pa43666307*12346"
-
 
 # --- App Config ---
 st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
@@ -33,11 +19,11 @@ def format_status_badge(status):
     status = status.upper()
     color_map = {
         "PENDING": "#f39c12",         # Orange
-        "READY": "#2ecc71",       # Purple
-        "IN TRANSIT": "#3498db",      # Light Blue
-        "ORDERED": "#9b59b6",        
-        "INCOMPLETE": "#e67e22",      # Dark Orange
-        "CANCELLED": "#e74c3c",       # Red
+        "READY": "#2ecc71",            # Green
+        "IN TRANSIT": "#3498db",       # Light Blue
+        "ORDERED": "#9b59b6",          # Purple
+        "INCOMPLETE": "#e67e22",       # Dark Orange
+        "CANCELLED": "#e74c3c",        # Red
     }
     color = color_map.get(status, "#7f8c8d")  # Default: Gray
     return f"""
@@ -72,44 +58,6 @@ def save_data():
     with open(COMMENTS_FILE, "w") as f:
         json.dump(st.session_state.comments, f)
 
-# --- SharePoint Excel Sync ---
-def append_to_sharepoint_excel(data_dict):
-    try:
-        st.info("🔐 Authenticating with SharePoint...")
-        ctx_auth = AuthenticationContext(SHAREPOINT_SITE)
-        if not ctx_auth.acquire_token_for_user(USERNAME, PASSWORD):
-            st.error("❌ SharePoint authentication failed.")
-            return
-
-        st.info("📁 Downloading existing Excel file from SharePoint...")
-        ctx = ClientContext(SHAREPOINT_SITE, ctx_auth)
-        file = ctx.web.get_file_by_server_relative_url(SHAREPOINT_DOC)
-        response = file.download().execute_query()
-
-        st.info("📄 Loading Excel file...")
-        excel_data = BytesIO(response.content)
-        wb = openpyxl.load_workbook(excel_data)
-        ws = wb.active
-
-        st.info("📝 Appending new row...")
-        columns = [
-            "Type", "Order#", "Invoice", "Date", "Status", "Shipping Method", "ETA Date",
-            "Description", "Quantity", "Cliente/Proveedor", "Encargado", "Pago"
-        ]
-        row = [data_dict.get(col, "") for col in columns]
-        ws.append(row)
-
-        st.info("💾 Saving and uploading updated file...")
-        updated_stream = BytesIO()
-        wb.save(updated_stream)
-        updated_stream.seek(0)
-        file.upload(updated_stream).execute_query()
-
-        st.success("✅ Data saved to SharePoint Excel.")
-    except Exception as e:
-        st.error(f"⚠️ SharePoint error: {e}")
-
-
 # --- Navigation + State ---
 if "page" not in st.session_state:
     st.session_state.page = "home"
@@ -139,7 +87,10 @@ def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        st.session_state.comments = {str(i): st.session_state.comments.get(str(i), []) for i in range(len(st.session_state.requests))}
+        st.session_state.comments = {
+            str(i): st.session_state.comments.get(str(i), [])
+            for i in range(len(st.session_state.requests))
+        }
         st.session_state.selected_request = None
         save_data()
         st.success("🗑️ Request deleted successfully.")
@@ -197,11 +148,8 @@ if st.session_state.page == "home":
         if st.button("📋 View All Requests", use_container_width=True):
             go_to("requests")
 
-
-###
 elif st.session_state.page == "purchase":
     import pandas as pd
-    from datetime import date
 
     st.markdown("## 💲 Purchase Request Form")
 
@@ -228,8 +176,6 @@ elif st.session_state.page == "purchase":
     # --- Initialize session‐state containers if not already set ---
     if "purchase_item_rows" not in st.session_state:
         st.session_state.purchase_item_rows = 1
-
-    # Ensure at least one row
     st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
 
     # ------------------------------------------------------------------
@@ -357,8 +303,6 @@ elif st.session_state.page == "purchase":
                     "Pago": pago
                 })
                 st.success("✅ Purchase request submitted.")
-
-                # Reset for next run
                 st.session_state.purchase_item_rows = 1
                 go_to("home")
 
@@ -366,14 +310,8 @@ elif st.session_state.page == "purchase":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
-
-
-### 
-
 elif st.session_state.page == "sales_order":
     import pandas as pd
-    import re
-    from datetime import date
 
     st.markdown("## 🛒 Sales Order Request Form")
 
@@ -401,17 +339,6 @@ elif st.session_state.page == "sales_order":
     # Initialize session‐state containers if not already set
     if "invoice_item_rows" not in st.session_state:
         st.session_state.invoice_item_rows = 1
-
-    # For manual input, we'll start with empty values
-    extracted_order_number = ""
-    extracted_order_date = None
-    extracted_cliente = ""
-    # Initialize lists for manual entry (no auto‐fill from PDF)
-    if "so_extracted_items" not in st.session_state:
-        st.session_state.so_extracted_items = []
-    if "so_extracted_quantities" not in st.session_state:
-        st.session_state.so_extracted_quantities = []
-    # Ensure invoice_item_rows is at least 1
     st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
 
     # ------------------------------------------------------------------
@@ -477,7 +404,10 @@ elif st.session_state.page == "sales_order":
         if st.button("➕ Add another item", key="add_invoice"):
             st.session_state.invoice_item_rows += 1
     with col_remove:
-        if st.session_state.invoice_item_rows > 1 and st.button("❌ Remove last item", key="remove_invoice"):
+        if (
+            st.session_state.invoice_item_rows > 1
+            and st.button("❌ Remove last item", key="remove_invoice")
+        ):
             st.session_state.invoice_item_rows -= 1
     # ──────────────────────────────────────────────────────────
 
@@ -503,7 +433,6 @@ elif st.session_state.page == "sales_order":
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
         if st.button("✅ Submit Sales Order", use_container_width=True):
-            # Clean up description & quantity lists
             cleaned_descriptions = [d.strip() for d in descriptions if d.strip()]
             cleaned_quantities = []
             for q in quantities:
@@ -514,7 +443,6 @@ elif st.session_state.page == "sales_order":
                     except ValueError:
                         cleaned_quantities.append(q)
 
-            # Validate required fields
             if (
                 not cleaned_descriptions
                 or not cleaned_quantities
@@ -538,17 +466,12 @@ elif st.session_state.page == "sales_order":
                     "Pago": pago
                 })
                 st.success("✅ Sales order submitted.")
-
-                # Reset for next new sales order
                 st.session_state.invoice_item_rows = 1
-                # Clear manual inputs by rerunning
                 go_to("home")
 
     with col_back:
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
-
-###
 
 elif st.session_state.page == "requests":
     st.header("📋 All Requests")
@@ -578,7 +501,7 @@ elif st.session_state.page == "requests":
         matches_status = (status_filter == "All") or (req.get("Status", "").upper() == status_filter)
         matches_type = (
             type_filter == "All"
-            or req.get("Type") == type_filter.split()[0]  # splits to "💲" or "🛒"
+            or req.get("Type") == type_filter.split()[0]
         )
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
@@ -597,7 +520,10 @@ elif st.session_state.page == "requests":
 
         # --- Table Header ---
         header_cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
-        headers = ["Type", "Ref#", "Description", "Qty", "Status", "Ordered Date", "ETA Date", "Shipping Method", "Encargado", ""]
+        headers = [
+            "Type", "Ref#", "Description", "Qty", "Status",
+            "Ordered Date", "ETA Date", "Shipping Method", "Encargado", ""
+        ]
         for col, header in zip(header_cols, headers):
             col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
 
@@ -652,8 +578,6 @@ elif st.session_state.page == "requests":
     if st.button("⬅ Back to Home"):
         go_to("home")
 
-
-# --- Detail Page ---
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
     index = st.session_state.selected_request
@@ -682,15 +606,9 @@ elif st.session_state.page == "detail":
         request = st.session_state.requests[index]
         updated_fields = {}
 
-        # ✅ Mark comments as read
-        if request.get("unread_comments"):
-            request["unread_comments"] = False
-            st.session_state.requests[index] = request
-            save_data()
-
         # Determine if this is a Purchase (💲) or Sales (🛒) order
         is_purchase = (request.get("Type") == "💲")
-        is_sales    = (request.get("Type") == "🛒")
+        is_sales = (request.get("Type") == "🛒")
 
         # --- 1) Order Information ---
         with st.container():
