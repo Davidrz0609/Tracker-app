@@ -3,9 +3,8 @@ import pandas as pd
 import json
 import os
 from datetime import date
-import PyPDF2
-import pdfplumber
 import re
+from streamlit_autorefresh import st_autorefresh  # type: ignore # ← Added for auto-refresh
 
 # --- App Config ---
 st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
@@ -87,6 +86,7 @@ def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
+        # Re-index comments
         st.session_state.comments = {
             str(i): st.session_state.comments.get(str(i), [])
             for i in range(len(st.session_state.requests))
@@ -474,6 +474,12 @@ elif st.session_state.page == "sales_order":
             go_to("home")
 
 elif st.session_state.page == "requests":
+    # --- Auto-refresh every 5 seconds ---
+    _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
+
+    # --- Re-load data from disk so we see the latest requests ---
+    load_data()
+
     st.header("📋 All Requests")
 
     # --- Filters ---
@@ -546,7 +552,7 @@ elif st.session_state.page == "requests":
 
                 # 4) Quantity (join list if needed)
                 qty_list = req.get("Quantity", [])
-                qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list, list) else str(qty_list)
+                qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list := req.get("Quantity", []), list) else str(qty_list)
                 cols[3].write(qty_display)
 
                 # 5) Status badge
