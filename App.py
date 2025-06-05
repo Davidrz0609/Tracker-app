@@ -6,14 +6,24 @@ from datetime import date, datetime
 import re
 from streamlit_autorefresh import st_autorefresh
 
-# --- App Config ---
-st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
+# --------------------------------------------------------------------------------
+# --- App Configuration ----------------------------------------------------------
+# --------------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Tito's Depot Help Center",
+    layout="wide",
+    page_icon="🛒"
+)
 
-# --- File Paths ---
+# --------------------------------------------------------------------------------
+# --- File Paths -----------------------------------------------------------------
+# --------------------------------------------------------------------------------
 EXCEL_FILE = "requests.xlsx"
 COMMENTS_FILE = "comments.json"
 
-# --- Helper: Colored Status Badge ---
+# --------------------------------------------------------------------------------
+# --- Helper: Colored Status Badge -----------------------------------------------
+# --------------------------------------------------------------------------------
 def format_status_badge(status):
     status = status.upper()
     color_map = {
@@ -37,73 +47,68 @@ def format_status_badge(status):
     ">{status}</span>
     """
 
-# --- Persistence (Excel-backed) ---
+# --------------------------------------------------------------------------------
+# --- Persistence (Excel-backed) -------------------------------------------------
+# --------------------------------------------------------------------------------
 def load_data():
     """
-    Load requests from Excel into st.session_state.requests,
-    parsing 'Description' and 'Quantity' JSON-strings back into Python lists.
+    Load data from EXCEL_FILE into st.session_state.requests,
+    and load comments from COMMENTS_FILE into st.session_state.comments.
+    We read 'Description' and 'Quantity' as plain strings, then JSON-decode them safely.
     """
-    # Initialize or clear the requests list
+    # Ensure requests list exists
     st.session_state.requests = []
 
+    # 1) Read the Excel file (if it exists)
     if os.path.exists(EXCEL_FILE):
         try:
-            # Read Excel, treating Description and Quantity as plain strings
+            # Read 'Description' and 'Quantity' columns as strings
             df = pd.read_excel(
                 EXCEL_FILE,
                 sheet_name=0,
-                dtype={
-                    "Description": str,
-                    "Quantity": str
-                }
+                dtype={"Description": str, "Quantity": str},
             )
         except Exception as e:
-            st.error(f"Could not read '{EXCEL_FILE}': {e}")
+            st.error(f"Error reading '{EXCEL_FILE}': {e}")
             return
 
-        # If the file is empty or has no rows, skip parsing
-        if df.empty:
-            return
-
-        for _, row in df.iterrows():
-            # Helper to parse a JSON-encoded cell into a Python list (or fallback)
+        if not df.empty:
+            # Helper to parse a JSON-encoded cell into a Python list
             def parse_list(cell_value):
                 if isinstance(cell_value, str):
                     cell_value = cell_value.strip()
-                    # Only attempt json.loads if it looks like a JSON list (starts with '[' or '{')
                     if cell_value.startswith("[") or cell_value.startswith("{"):
                         try:
                             return json.loads(cell_value)
                         except Exception:
-                            # If parsing fails, return empty list
                             return []
-                # If it's not a string or not JSON, return empty list
                 return []
 
-            parsed_description = parse_list(row.get("Description", ""))
-            parsed_quantity    = parse_list(row.get("Quantity", ""))
+            for _, row in df.iterrows():
+                parsed_description = parse_list(row.get("Description", ""))
+                parsed_quantity    = parse_list(row.get("Quantity", ""))
 
-            req = {
-                "Type": row.get("Type", "") or "",
-                "Order#": row.get("Order#", "") or "",
-                "Invoice": row.get("Invoice", "") or "",
-                "Date": row.get("Date", "") or "",
-                "Status": row.get("Status", "") or "",
-                "Shipping Method": row.get("Shipping Method", "") or "",
-                "ETA Date": row.get("ETA Date", "") or "",
-                "Description": parsed_description,
-                "Quantity": parsed_quantity,
-                "Proveedor": row.get("Proveedor", "") if "Proveedor" in row else None,
-                "Cliente": row.get("Cliente", "") if "Cliente" in row else None,
-                "Encargado": row.get("Encargado", "") or "",
-                "Pago": row.get("Pago", "") or ""
-            }
-            st.session_state.requests.append(req)
+                req = {
+                    "Type": row.get("Type", "") or "",
+                    "Order#": row.get("Order#", "") or "",
+                    "Invoice": row.get("Invoice", "") or "",
+                    "Date": row.get("Date", "") or "",
+                    "Status": row.get("Status", "") or "",
+                    "Shipping Method": row.get("Shipping Method", "") or "",
+                    "ETA Date": row.get("ETA Date", "") or "",
+                    "Description": parsed_description,
+                    "Quantity": parsed_quantity,
+                    "Proveedor": row.get("Proveedor", "") if "Proveedor" in row else None,
+                    "Cliente": row.get("Cliente", "") if "Cliente" in row else None,
+                    "Encargado": row.get("Encargado", "") or "",
+                    "Pago": row.get("Pago", "") or "",
+                }
+                st.session_state.requests.append(req)
     else:
-        # If the Excel file does not exist yet, initialize an empty list
+        # If file doesn’t exist, we’ll start with an empty list
         st.session_state.requests = []
 
-    # --- Load comments from JSON ---
+    # 2) Read comments JSON (if it exists)
     if os.path.exists(COMMENTS_FILE):
         try:
             with open(COMMENTS_FILE, "r") as f:
@@ -113,11 +118,10 @@ def load_data():
     else:
         st.session_state.comments = {}
 
-
 def save_data():
     """
-    Save st.session_state.requests back to Excel, JSON-encoding Description/Quantity.
-    Also persist comments to JSON.
+    Save st.session_state.requests to EXCEL_FILE (JSON-encoding the
+    'Description' and 'Quantity' lists) and save comments to COMMENTS_FILE.
     """
     records = []
     for req in st.session_state.requests:
@@ -129,13 +133,13 @@ def save_data():
             "Status": req.get("Status", ""),
             "Shipping Method": req.get("Shipping Method", ""),
             "ETA Date": req.get("ETA Date", ""),
-            # JSON-encode lists (or empty lists) for Description/Quantity
+            # JSON-encode lists for storage
             "Description": json.dumps(req.get("Description", [])),
             "Quantity": json.dumps(req.get("Quantity", [])),
             "Proveedor": req.get("Proveedor", "") if req.get("Type") == "💲" else "",
             "Cliente": req.get("Cliente", "") if req.get("Type") == "🛒" else "",
             "Encargado": req.get("Encargado", ""),
-            "Pago": req.get("Pago", "")
+            "Pago": req.get("Pago", ""),
         }
         records.append(record)
 
@@ -143,66 +147,98 @@ def save_data():
     try:
         df.to_excel(EXCEL_FILE, index=False)
     except Exception as e:
-        st.error(f"Could not write to '{EXCEL_FILE}': {e}")
+        st.error(f"Error writing to '{EXCEL_FILE}': {e}")
 
     # Save comments
     try:
         with open(COMMENTS_FILE, "w") as f:
             json.dump(st.session_state.comments, f)
     except Exception as e:
-        st.error(f"Could not write to '{COMMENTS_FILE}': {e}")
+        st.error(f"Error writing to '{COMMENTS_FILE}': {e}")
 
-# --- Navigation + State ---
+# --------------------------------------------------------------------------------
+# --- Navigation + State Initialization ------------------------------------------
+# --------------------------------------------------------------------------------
+# Guarantee that session_state.requests and session_state.comments exist before anything else
+if "requests" not in st.session_state:
+    st.session_state.requests = []
+if "comments" not in st.session_state:
+    st.session_state.comments = {}
+
+# Load data initially if missing
+if not st.session_state.requests or not st.session_state.comments:
+    load_data()
+
 if "page" not in st.session_state:
     st.session_state.page = "home"
-if "requests" not in st.session_state or "comments" not in st.session_state:
-    load_data()
 if "selected_request" not in st.session_state:
     st.session_state.selected_request = None
 
-def go_to(page):
-    st.session_state.page = page
+def go_to(page_name):
+    st.session_state.page = page_name
     st.rerun()
 
-def add_request(data):
+def add_request(data: dict):
+    """
+    Append a new request to st.session_state.requests, initialize its comments list,
+    then save everything.
+    """
     index = len(st.session_state.requests)
     st.session_state.requests.append(data)
+    # Ensure comments list exists for the new index
     st.session_state.comments[str(index)] = []
     save_data()
 
-def add_comment(index, author, text):
+def add_comment(index: int, author: str, text: str):
+    """
+    Add a comment under st.session_state.comments[index], then save.
+    """
     key = str(index)
     if key not in st.session_state.comments:
         st.session_state.comments[key] = []
     st.session_state.comments[key].append({"author": author, "text": text})
     save_data()
 
-def delete_request(index):
+def delete_request(index: int):
+    """
+    Remove a request and its comments, re-index remaining comments, save, and go to 'requests'.
+    """
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        # Re-index remaining comments
-        st.session_state.comments = {
-            str(i): st.session_state.comments.get(str(i), [])
-            for i in range(len(st.session_state.requests))
-        }
+
+        # Re-index comments for all remaining requests
+        new_comments = {}
+        for i, req in enumerate(st.session_state.requests):
+            old_key = str(i if i < index else i + 1)
+            new_comments[str(i)] = st.session_state.comments.get(old_key, [])
+        st.session_state.comments = new_comments
+
         st.session_state.selected_request = None
         save_data()
         st.success("🗑️ Request deleted successfully.")
         go_to("requests")
 
-# --- Sort Requests by ETA Date ---
-def sort_requests_by_eta(requests):
+# --------------------------------------------------------------------------------
+# --- Utility: Sort Requests by ETA Date -----------------------------------------
+# --------------------------------------------------------------------------------
+def sort_requests_by_eta(requests_list):
+    """
+    Return a sorted copy of requests_list by their 'ETA Date' (earliest first).
+    Invalid or missing dates go to the end.
+    """
     def parse_eta(req):
         try:
             return datetime.strptime(req.get("ETA Date", "9999-12-31"), "%Y-%m-%d")
         except:
             return datetime(9999, 12, 31)
-    return sorted(requests, key=parse_eta)
+    return sorted(requests_list, key=parse_eta)
 
-# --- Home Page ---
+# --------------------------------------------------------------------------------
+# --- "Home" Page ----------------------------------------------------------------
+# --------------------------------------------------------------------------------
 if st.session_state.page == "home":
-    # --- Global Styling ---
+    # Global CSS
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -230,11 +266,9 @@ if st.session_state.page == "home":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Section Header ---
     st.markdown("## 🏠 Welcome to the Help Center")
     st.markdown("### What can we help you with today?")
 
-    # --- Main Navigation ---
     with st.container():
         col1, col2 = st.columns(2)
         with col1:
@@ -244,19 +278,20 @@ if st.session_state.page == "home":
             if st.button("🛒 Sales Order Request", use_container_width=True):
                 go_to("sales_order")
 
-    # --- Divider ---
     st.markdown("<hr style='margin: 2rem 0;'>", unsafe_allow_html=True)
 
-    # --- All Requests ---
     with st.container():
         if st.button("📋 View All Requests", use_container_width=True):
             go_to("requests")
 
-# --- Purchase Request Page ---
+
+# --------------------------------------------------------------------------------
+# --- Purchase Request Page ------------------------------------------------------
+# --------------------------------------------------------------------------------
 elif st.session_state.page == "purchase":
     st.markdown("## 💲 Purchase Request Form")
 
-    # --- Global Styles ---
+    # Global Styles
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -276,13 +311,12 @@ elif st.session_state.page == "purchase":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Initialize session‐state containers if not already set ---
+    # Initialize dynamic item-row counter
     if "purchase_item_rows" not in st.session_state:
         st.session_state.purchase_item_rows = 1
     st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
 
-    # ------------------------------------------------------------------
-    # --- 1) FORM FIELDS (manual input only) ---
+    # 1) Order Information
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
@@ -315,12 +349,10 @@ elif st.session_state.page == "purchase":
             [" ", "Wire", "Cheque", "Credito", "Efectivo"]
         )
 
-    # ------------------------------------------------------------------
-    # --- 2) ITEM ROWS (dynamic manual input) ---
+    # 2) Item Rows (dynamic)
     st.markdown("### 🧾 Items to Order")
     descriptions = []
     quantities = []
-
     for i in range(st.session_state.purchase_item_rows):
         colA, colB = st.columns(2)
         descriptions.append(
@@ -338,7 +370,6 @@ elif st.session_state.page == "purchase":
             )
         )
 
-    # ──────────── “Add/Remove” BUTTONS BELOW ITEMS ────────────
     col_add, col_remove = st.columns([1, 1])
     with col_add:
         if st.button("➕ Add another item", key="add_purchase"):
@@ -349,10 +380,8 @@ elif st.session_state.page == "purchase":
             and st.button("❌ Remove last item", key="remove_purchase")
         ):
             st.session_state.purchase_item_rows -= 1
-    # ──────────────────────────────────────────────────────────
 
-    # ------------------------------------------------------------------
-    # --- 3) SHIPPING INFORMATION ---
+    # 3) Shipping Information
     st.markdown("### 🚚 Shipping Information")
     col3, col4 = st.columns(2)
     with col3:
@@ -367,8 +396,7 @@ elif st.session_state.page == "purchase":
         [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"]
     )
 
-    # ------------------------------------------------------------------
-    # --- 4) SUBMIT + BACK BUTTONS ---
+    # 4) Submit + Back Buttons
     st.markdown("---")
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
@@ -413,11 +441,14 @@ elif st.session_state.page == "purchase":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
-# --- Sales Order Request Page ---
+
+# --------------------------------------------------------------------------------
+# --- Sales Order Request Page ---------------------------------------------------
+# --------------------------------------------------------------------------------
 elif st.session_state.page == "sales_order":
     st.markdown("## 🛒 Sales Order Request Form")
 
-    # --- Global Styles ---
+    # Global Styles
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -437,14 +468,12 @@ elif st.session_state.page == "sales_order":
     </style>
     """, unsafe_allow_html=True)
 
-    # ------------------------------------------------------------------
-    # Initialize session‐state containers if not already set
+    # Initialize dynamic item-row counter
     if "invoice_item_rows" not in st.session_state:
         st.session_state.invoice_item_rows = 1
     st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
 
-    # ------------------------------------------------------------------
-    # --- 1) FORM FIELDS (fully manual; no PDF upload) ---
+    # 1) Order Information
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
@@ -477,12 +506,10 @@ elif st.session_state.page == "sales_order":
             [" ", "Wire", "Cheque", "Credito", "Efectivo"]
         )
 
-    # ------------------------------------------------------------------
-    # --- 2) ITEM ROWS (dynamic manual input) ---
+    # 2) Item Rows (dynamic)
     st.markdown("### 🧾 Items to Invoice")
     descriptions = []
     quantities = []
-
     for i in range(st.session_state.invoice_item_rows):
         colA, colB = st.columns(2)
         descriptions.append(
@@ -500,7 +527,6 @@ elif st.session_state.page == "sales_order":
             )
         )
 
-    # ──────────── “Add/Remove” BUTTONS BELOW ITEMS ────────────
     col_add, col_remove = st.columns([1, 1])
     with col_add:
         if st.button("➕ Add another item", key="add_invoice"):
@@ -511,10 +537,8 @@ elif st.session_state.page == "sales_order":
             and st.button("❌ Remove last item", key="remove_invoice")
         ):
             st.session_state.invoice_item_rows -= 1
-    # ──────────────────────────────────────────────────────────
 
-    # ------------------------------------------------------------------
-    # --- 3) SHIPPING INFORMATION ---
+    # 3) Shipping Information
     st.markdown("### 🚚 Shipping Information")
     col3, col4 = st.columns(2)
     with col3:
@@ -529,8 +553,7 @@ elif st.session_state.page == "sales_order":
         [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"]
     )
 
-    # ------------------------------------------------------------------
-    # --- 4) SUBMIT + BACK BUTTONS ---
+    # 4) Submit + Back Buttons
     st.markdown("---")
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
@@ -575,35 +598,35 @@ elif st.session_state.page == "sales_order":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
-# --- All Requests Page (Excel-backed) ---
+
+# --------------------------------------------------------------------------------
+# --- All Requests Page (Excel-backed) -------------------------------------------
+# --------------------------------------------------------------------------------
 elif st.session_state.page == "requests":
-    # --- Auto-refresh every 1 second ---
+    # Auto-refresh every 1 second so we pick up external Excel edits
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
 
-    # --- Re-load data from Excel so we see the latest requests ---
+    # Reload data from Excel to get latest updates
     load_data()
 
     st.header("📋 All Requests")
 
-    # --- Filters ---
+    # Filters: Search / Status / Type
     col1, col2, col3 = st.columns([3, 2, 2])
-
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests...")
-
     with col2:
         status_filter = st.selectbox(
             "Status",
             ["All", "PENDING", "IN TRANSIT", "READY", "CANCELLED", "CONFIRMED", "INCOMPLETE"]
         )
-
     with col3:
         type_filter = st.selectbox(
             "Request type",
             ["All", "💲 Purchase", "🛒 Sales"]
         )
 
-    # --- Filter Logic ---
+    # Filter Logic
     filtered_requests = []
     for req in st.session_state.requests:
         matches_search = search_term.lower() in json.dumps(req).lower()
@@ -615,31 +638,31 @@ elif st.session_state.page == "requests":
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
 
-    # --- Sort the filtered requests by ETA Date (soonest first) ---
+    # Sort by ETA date
     filtered_requests = sort_requests_by_eta(filtered_requests)
 
     if filtered_requests:
-        # --- Table Header Styling (make headers larger) ---
+        # Table Header Styling
         st.markdown("""
         <style>
         .header-row {
             font-weight: bold;
-            font-size: 18px;        /* increased font size */
+            font-size: 18px;
             padding: 0.5rem 0;
         }
         </style>
         """, unsafe_allow_html=True)
 
-        # --- Table Header ---
+        # Table Header
         header_cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
         headers = [
             "Type", "Ref#", "Description", "Qty", "Status",
             "Ordered Date", "ETA Date", "Shipping Method", "Encargado", ""
         ]
-        for col, header in zip(header_cols, headers):
-            col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
+        for col, head in zip(header_cols, headers):
+            col.markdown(f"<div class='header-row'>{head}</div>", unsafe_allow_html=True)
 
-        # --- Table Rows ---
+        # Table Rows
         for i, req in enumerate(filtered_requests):
             with st.container():
                 cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
@@ -647,18 +670,18 @@ elif st.session_state.page == "requests":
                 # 1) Type (icon)
                 cols[0].write(req.get("Type", ""))
 
-                # 2) Ref#: prefer "Order#", but fall back to "Invoice"
+                # 2) Ref# (Order# or Invoice)
                 ref_val = req.get("Order#", "") or req.get("Invoice", "")
                 cols[1].write(ref_val)
 
-                # 3) Description (join list if needed)
+                # 3) Description (join list)
                 desc_list = req.get("Description", [])
                 desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
                 cols[2].write(desc_display)
 
-                # 4) Quantity (join list if needed)
+                # 4) Quantity (join list)
                 qty_list = req.get("Quantity", [])
-                qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list := req.get("Quantity", []), list) else str(qty_list)
+                qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list, list) else str(qty_list)
                 cols[3].write(qty_display)
 
                 # 5) Status badge
@@ -679,7 +702,7 @@ elif st.session_state.page == "requests":
                 # 9) Encargado
                 cols[8].write(req.get("Encargado", ""))
 
-                # 10) “View” button → go to detail
+                # 10) “View” button → go to detail page
                 if cols[9].button("🔍", key=f"view_{i}"):
                     full_index = st.session_state.requests.index(req)
                     st.session_state.selected_request = full_index
@@ -690,12 +713,15 @@ elif st.session_state.page == "requests":
     if st.button("⬅ Back to Home"):
         go_to("home")
 
-# --- Detail Page ---
+
+# --------------------------------------------------------------------------------
+# --- Detail Page ----------------------------------------------------------------
+# --------------------------------------------------------------------------------
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
     index = st.session_state.selected_request
 
-    # --- Global Styles ---
+    # Global Styles
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -715,15 +741,15 @@ elif st.session_state.page == "detail":
     </style>
     """, unsafe_allow_html=True)
 
-    if index is not None and index < len(st.session_state.requests):
+    if (index is not None) and (0 <= index < len(st.session_state.requests)):
         request = st.session_state.requests[index]
         updated_fields = {}
 
-        # Determine if this is a Purchase (💲) or Sales (🛒) order
+        # Determine if Purchase or Sales
         is_purchase = (request.get("Type") == "💲")
-        is_sales = (request.get("Type") == "🛒")
+        is_sales    = (request.get("Type") == "🛒")
 
-        # --- 1) Order Information ---
+        # 1) Order Information
         with st.container():
             st.markdown("### 📄 Order Information")
             col1, col2 = st.columns(2)
@@ -741,16 +767,16 @@ elif st.session_state.page == "detail":
 
                 # Dynamic rows for Description & Quantity
                 desc_list = request.get("Description", [])
-                qty_list = request.get("Quantity", [])
-                num_rows = max(len(desc_list), len(qty_list), 1)
+                qty_list  = request.get("Quantity", [])
+                num_rows  = max(len(desc_list), len(qty_list), 1)
 
                 st.markdown("#### 📋 Items")
                 new_descriptions = []
-                new_quantities = []
+                new_quantities  = []
                 for i in range(num_rows):
                     cA, cB = st.columns(2)
                     desc_val = desc_list[i] if i < len(desc_list) else ""
-                    qty_val = qty_list[i] if i < len(qty_list) else ""
+                    qty_val  = qty_list[i]  if i < len(qty_list) else ""
                     new_desc = cA.text_input(
                         f"Description #{i+1}",
                         value=desc_val,
@@ -800,7 +826,7 @@ elif st.session_state.page == "detail":
 
                 # Proveedor vs Cliente
                 partner_label = "Proveedor" if is_purchase else "Cliente"
-                partner_val = request.get(partner_label, "")
+                partner_val   = request.get(partner_label, "")
                 partner = st.text_input(
                     partner_label,
                     value=partner_val,
@@ -831,10 +857,11 @@ elif st.session_state.page == "detail":
                 if encargado != encargado_val:
                     updated_fields["Encargado"] = encargado
 
-        # --- 2) Shipping Information ---
+        # 2) Shipping Information
         with st.container():
             st.markdown("### 🚚 Shipping Information")
             col3, col4 = st.columns(2)
+
             with col3:
                 date_val = request.get("Date", str(date.today()))
                 order_date = st.date_input(
@@ -844,6 +871,7 @@ elif st.session_state.page == "detail":
                 )
                 if str(order_date) != date_val:
                     updated_fields["Date"] = str(order_date)
+
             with col4:
                 eta_val = request.get("ETA Date", str(date.today()))
                 eta_date = st.date_input(
@@ -864,11 +892,13 @@ elif st.session_state.page == "detail":
             if shipping_method != ship_val:
                 updated_fields["Shipping Method"] = shipping_method
 
-        # --- 3) Save, Delete, Back ---
+        # 3) Save, Delete, Back Buttons
         st.markdown("---")
         col_save, col_delete, col_back = st.columns([2, 1, 1])
+
         with col_save:
             if updated_fields and st.button("💾 Save Changes", use_container_width=True):
+                # Apply updates to the in-memory request
                 request.update(updated_fields)
                 st.session_state.requests[index] = request
                 save_data()
@@ -883,7 +913,7 @@ elif st.session_state.page == "detail":
             if st.button("⬅ Back to All Requests", use_container_width=True):
                 go_to("requests")
 
-        # --- 4) Comments Section ---
+        # 4) Comments Section
         st.markdown("### 💬 Comments")
         for comment in st.session_state.comments.get(str(index), []):
             st.markdown(f"**{comment['author']}**: {comment['text']}")
