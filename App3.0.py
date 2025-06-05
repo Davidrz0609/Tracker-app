@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 import re
 from streamlit_autorefresh import st_autorefresh
 
@@ -36,6 +36,13 @@ def format_status_badge(status):
         display: inline-block;
     ">{status}</span>
     """
+def sort_requests_by_eta(requests):
+    def parse_eta(req):
+        try:
+            return datetime.strptime(req.get("ETA Date", "9999-12-31"), "%Y-%m-%d")
+        except:
+            return datetime(9999, 12, 31)
+    return sorted(requests, key=parse_eta)
 
 # --- Persistence ---
 def load_data():
@@ -472,9 +479,11 @@ elif st.session_state.page == "sales_order":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
+#####
+
 elif st.session_state.page == "requests":
-    # --- Auto-refresh every 5 seconds ---
-    _ = st_autorefresh(interval=100, limit=None, key="requests_refresh")
+    # --- Auto-refresh every 1 second ---
+    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
 
     # --- Re-load data from disk so we see the latest requests ---
     load_data()
@@ -510,6 +519,9 @@ elif st.session_state.page == "requests":
         )
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
+
+    # --- Sort the filtered list by ETA Date (soonest first) ---
+    filtered_requests = sort_requests_by_eta(filtered_requests)
 
     if filtered_requests:
         # --- Table Header Styling (make headers larger) ---
@@ -582,6 +594,7 @@ elif st.session_state.page == "requests":
 
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
