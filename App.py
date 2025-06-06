@@ -188,10 +188,11 @@ elif st.session_state.page == "purchase":
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
-        order_number = st.text_input(
-            "Tracking# (optional)",
+        # <-- MOVED "Purchase Order#" HERE (was originally in col2) -->
+        po_number = st.text_input(
+            "Purchase Order#",
             value="",
-            placeholder="e.g. PO-2025-12345"
+            placeholder="e.g. 12345"
         )
         status = st.selectbox(
             "Status *",
@@ -202,10 +203,11 @@ elif st.session_state.page == "purchase":
             [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"]
         )
     with col2:
-        po_number = st.text_input(
-            "Purchase Order#",
+        # <-- MOVED "Tracking# (optional)" HERE (was originally in col1) -->
+        order_number = st.text_input(
+            "Tracking# (optional)",
             value="",
-            placeholder="e.g. 12345"
+            placeholder="e.g. PO-2025-12345"
         )
         proveedor = st.text_input(
             "Proveedor",
