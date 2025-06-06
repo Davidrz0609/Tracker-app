@@ -618,10 +618,6 @@ elif st.session_state.page == "requests":
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
 elif st.session_state.page == "detail":
-    # ─────────────────────────────────────────────────────────────────────
-    #  "Request Details" PAGE (with WhatsApp‐style chat bubbles)
-    # ─────────────────────────────────────────────────────────────────────
-
     st.markdown("## 📂 Request Details")
     st.markdown(
         f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to All Requests](#)",
@@ -864,10 +860,10 @@ elif st.session_state.page == "detail":
     for comment in existing_comments:
         author = comment["author"]
         text = comment["text"]
-        when = comment.get("when", "")  # e.g. "2025-06-06 17:12"
+        when = comment.get("when", "")
 
         if author == st.session_state.user_name:
-            # Outgoing: show author name in blue on right, then blue bubble on right
+            # Outgoing: author label on right in teal, bubble on right in teal
             st.markdown(
                 f'<div class="chat-author-out">{author}</div>'
                 f'<div class="chat-bubble-out">{text}</div>'
@@ -876,7 +872,7 @@ elif st.session_state.page == "detail":
                 unsafe_allow_html=True
             )
         else:
-            # Incoming: show author name in gray on left, then gray bubble on left
+            # Incoming: author label on left in gray, bubble on left in gray
             st.markdown(
                 f'<div class="chat-author-in">{author}</div>'
                 f'<div class="chat-bubble-in">{text}</div>'
@@ -887,11 +883,13 @@ elif st.session_state.page == "detail":
 
     # 3) Input for new message & Send button
     st.markdown("---")
-    new_message = st.text_input("Type your message here…", key=f"new_msg_{index}")
+    text_input_key = f"new_msg_{index}"
+    new_message = st.text_input("Type your message here…", key=text_input_key)
+
     if st.button("Send", key=f"send_{index}"):
         if new_message.strip():
             add_comment(index, st.session_state.user_name, new_message.strip())
-            # Clear the input and rerun so the new message appears
-            st.session_state[f"new_msg_{index}"] = ""
+            # Only clear if this key was created by the text_input above
+            if text_input_key in st.session_state:
+                st.session_state[text_input_key] = ""
             st.rerun()
-
