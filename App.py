@@ -635,6 +635,9 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
+# -------------------------------------------
+# ---------- REQUEST DETAILS PAGE -----------
+# -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
     #  "Request Details" PAGE (WhatsApp‐style, centered chat bubbles &
@@ -989,8 +992,8 @@ elif st.session_state.page == "detail":
             key=f"fileuploader_{index}"
         )
 
-        # c) Hidden “dummy” send button (only to force rerun if file is selected but user presses ENTER in file selector)
-        st.button("._dummy_", key=f"dummy_{index}", help="")
+        # c) Invisible “dummy” button — label is empty so it doesn’t appear on screen
+        st.button("", key=f"dummy_{index}")
 
         # d) “Upload File” button (separate)
         if st.button("Upload File", key=f"upload_file_{index}"):
@@ -1013,4 +1016,3 @@ elif st.session_state.page == "detail":
                 st.rerun()
 
     # End of “detail” page
-
