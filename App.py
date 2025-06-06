@@ -635,13 +635,10 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
-# -------------------------------------------
-# ---------- REQUEST DETAILS PAGE -----------
-# -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
     #  "Request Details" PAGE (WhatsApp‐style, centered chat bubbles &
-    #   file‐upload feature, ENTER‐to‐send, and working file links)
+    #   file‐upload feature, ENTER‐to‐send, and true‐file downloads)
     # ─────────────────────────────────────────────────────────────────────
 
     st.markdown("## 📂 Request Details")
@@ -818,7 +815,7 @@ elif st.session_state.page == "detail":
 
     # ─────────────────────────────────────────────────────────────────────
     #  COMMENTS SECTION (WhatsApp‐style, centered chat bubbles & file‐upload)
-    #  + ENTER‐to‐send + clickable attachment links
+    #  + ENTER‐to‐send + true file downloads
     # ─────────────────────────────────────────────────────────────────────
 
     # 1) Inject CSS (narrower bubbles, WhatsApp green for outgoing)
@@ -912,33 +909,38 @@ elif st.session_state.page == "detail":
             when = comment.get("when", "")
             attachment = comment.get("attachment", None)
 
-            # If there's an attachment, show it first
+            # If there’s an attachment, show a download button instead of an HTML link
             if attachment:
-                # Build a Markdown link that points to the local uploads folder.
-                # Clicking this link will trigger Streamlit to serve/download that file.
-                file_relpath = f"{UPLOADS_DIR}/{attachment}"
-                if author == st.session_state.user_name:
-                    # Outgoing attachment (right‐aligned)
-                    st.markdown(
-                        f'<div class="chat-author-out">{author}</div>'
-                        f'<div class="chat-attachment" style="float: right;">'
-                        f'📎 <a href="{file_relpath}" class="attachment-link" download>{attachment}</a>'
-                        f'</div>'
-                        f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
-                        f'<div class="clearfix"></div>',
-                        unsafe_allow_html=True
+                file_path = os.path.join(UPLOADS_DIR, attachment)
+                try:
+                    with open(file_path, "rb") as f:
+                        file_bytes = f.read()
+
+                    # Render a real download button so the user gets the raw XLSX/PNG/PDF
+                    st.download_button(
+                        label=f"📎 {attachment}",
+                        data=file_bytes,
+                        file_name=attachment,
+                        mime="application/octet-stream",
+                        key=f"dl_{index}_{attachment}"
                     )
-                else:
-                    # Incoming attachment (left‐aligned)
-                    st.markdown(
-                        f'<div class="chat-author-in">{author}</div>'
-                        f'<div class="chat-attachment">'
-                        f'📎 <a href="{file_relpath}" class="attachment-link" download>{attachment}</a>'
-                        f'</div>'
-                        f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
-                        f'<div class="clearfix"></div>',
-                        unsafe_allow_html=True
-                    )
+                    # Show who uploaded it and when
+                    if author == st.session_state.user_name:
+                        st.markdown(f'<div class="chat-author-out">{author}</div>',
+                                    unsafe_allow_html=True)
+                        st.markdown(f'<div class="chat-timestamp" style="text-align: right;">{when}</div>',
+                                    unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="chat-author-in">{author}</div>',
+                                    unsafe_allow_html=True)
+                        st.markdown(f'<div class="chat-timestamp" style="text-align: left;">{when}</div>',
+                                    unsafe_allow_html=True)
+
+                    # Clear any floats before the next message
+                    st.markdown('<div class="clearfix"></div>', unsafe_allow_html=True)
+
+                except FileNotFoundError:
+                    st.error(f"⚠️ Attachment not found: {attachment}")
 
             # Then render the text bubble (if any text exists)
             if text:
@@ -961,10 +963,9 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
 
-        # 3) INPUT ROW: text_input with ENTER‐to‐send + file_uploader + hidden “Send” button
+        # 3) INPUT ROW: text_input with ENTER‐to‐send + file_uploader + hidden “dummy” button
         st.markdown("---")
 
-        # a) Define a callback that runs when ENTER is pressed
         def _send_on_enter():
             typed = st.session_state[text_input_key]
             if typed.strip():
@@ -974,9 +975,8 @@ elif st.session_state.page == "detail":
                     typed.strip(),
                     attachment=None
                 )
-                # Clear the input box
                 st.session_state[text_input_key] = ""
-                st.rerun()
+                # No st.rerun() here—Streamlit reruns automatically after callback.
 
         text_input_key = f"new_msg_{index}"
         new_message = st.text_input(
@@ -985,27 +985,24 @@ elif st.session_state.page == "detail":
             on_change=_send_on_enter
         )
 
-        # b) File uploader (PDF, PNG, XLSX)
         uploaded_file = st.file_uploader(
             "Attach a PDF, PNG or XLSX file:",
             type=["pdf", "png", "xlsx"],
             key=f"fileuploader_{index}"
         )
 
-        # c) Invisible “dummy” button — label is empty so it doesn’t appear on screen
+        # Hidden/invisible “dummy” button so ENTER‐to‐send continues to work after you click a file
         st.button("", key=f"dummy_{index}")
 
-        # d) “Upload File” button (separate)
+        # “Upload File” button (keeps exactly the same logic)
         if st.button("Upload File", key=f"upload_file_{index}"):
             if uploaded_file is not None:
-                # Create a unique “safe” filename:
                 timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
                 safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
                 save_path = os.path.join(UPLOADS_DIR, safe_filename)
-                # Write the file’s bytes to disk:
                 with open(save_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
-                # Record this upload as a comment with no text, just an attachment
+
                 add_comment(
                     index,
                     st.session_state.user_name,
