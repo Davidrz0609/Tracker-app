@@ -164,7 +164,7 @@ if st.session_state.page == "home":
             st.session_state.authenticated = False
             st.session_state.user_name = ""
             st.session_state.page = "login"
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("## 🏠 Welcome to the Help Center")
     st.markdown(f"Logged in as: **{st.session_state.user_name}**")
