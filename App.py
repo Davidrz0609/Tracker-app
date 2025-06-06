@@ -637,8 +637,8 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
-    #  "Request Details" PAGE (with WhatsApp‐style, centered chat bubbles &
-    #   file‐upload feature)
+    #  "Request Details" PAGE (WhatsApp‐style, centered chat bubbles &
+    #   file‐upload feature, ENTER‐to‐send, and working file links)
     # ─────────────────────────────────────────────────────────────────────
 
     st.markdown("## 📂 Request Details")
@@ -815,6 +815,7 @@ elif st.session_state.page == "detail":
 
     # ─────────────────────────────────────────────────────────────────────
     #  COMMENTS SECTION (WhatsApp‐style, centered chat bubbles & file‐upload)
+    #  + ENTER‐to‐send + clickable attachment links
     # ─────────────────────────────────────────────────────────────────────
 
     # 1) Inject CSS (narrower bubbles, WhatsApp green for outgoing)
@@ -896,11 +897,12 @@ elif st.session_state.page == "detail":
     )
 
     # 2) Render chat inside a centered column
-    st.markdown("### 💬 Comments (Chat-Style)")
+    st.markdown("### 💬 Comments (Chat‐Style)")
     col_l, col_center, col_r = st.columns([1, 6, 1])
     with col_center:
         existing_comments = st.session_state.comments.get(str(index), [])
 
+        # Render all existing comments in chronological order
         for comment in existing_comments:
             author = comment["author"]
             text = comment.get("text", "")
@@ -909,34 +911,36 @@ elif st.session_state.page == "detail":
 
             # If there's an attachment, show it first
             if attachment:
-                file_path = os.path.join(UPLOADS_DIR, attachment)
+                # Build a Markdown link that points to the local uploads folder.
+                # Clicking this link will trigger Streamlit to serve/download that file.
+                file_relpath = f"{UPLOADS_DIR}/{attachment}"
                 if author == st.session_state.user_name:
-                    # Outgoing attachment (right-aligned)
+                    # Outgoing attachment (right‐aligned)
                     st.markdown(
                         f'<div class="chat-author-out">{author}</div>'
                         f'<div class="chat-attachment" style="float: right;">'
-                        f'📎 <a href="/{file_path}" class="attachment-link" download>{attachment}</a>'
+                        f'📎 <a href="{file_relpath}" class="attachment-link" download>{attachment}</a>'
                         f'</div>'
                         f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
                         f'<div class="clearfix"></div>',
                         unsafe_allow_html=True
                     )
                 else:
-                    # Incoming attachment (left-aligned)
+                    # Incoming attachment (left‐aligned)
                     st.markdown(
                         f'<div class="chat-author-in">{author}</div>'
                         f'<div class="chat-attachment">'
-                        f'📎 <a href="/{file_path}" class="attachment-link" download>{attachment}</a>'
+                        f'📎 <a href="{file_relpath}" class="attachment-link" download>{attachment}</a>'
                         f'</div>'
                         f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
                         f'<div class="clearfix"></div>',
                         unsafe_allow_html=True
                     )
 
-            # Then render the text bubble if any text exists
+            # Then render the text bubble (if any text exists)
             if text:
                 if author == st.session_state.user_name:
-                    # Outgoing text: right-aligned green bubble
+                    # Outgoing text: right‐aligned green bubble
                     st.markdown(
                         f'<div class="chat-author-out">{author}</div>'
                         f'<div class="chat-bubble-out">{text}</div>'
@@ -945,7 +949,7 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
                 else:
-                    # Incoming text: left-aligned gray bubble
+                    # Incoming text: left‐aligned gray bubble
                     st.markdown(
                         f'<div class="chat-author-in">{author}</div>'
                         f'<div class="chat-bubble-in">{text}</div>'
@@ -954,50 +958,59 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
 
-        # 3) Input row: text_input, file_uploader, and two buttons
+        # 3) INPUT ROW: text_input with ENTER‐to‐send + file_uploader + hidden “Send” button
         st.markdown("---")
-        text_input_key = f"new_msg_{index}"
-        new_message = st.text_input("Type your message here…", key=text_input_key)
 
-        # Only allow PDF, PNG, or XLSX:
+        # a) Define a callback that runs when ENTER is pressed
+        def _send_on_enter():
+            typed = st.session_state[text_input_key]
+            if typed.strip():
+                add_comment(
+                    index,
+                    st.session_state.user_name,
+                    typed.strip(),
+                    attachment=None
+                )
+                # Clear the input box
+                st.session_state[text_input_key] = ""
+                st.rerun()
+
+        text_input_key = f"new_msg_{index}"
+        new_message = st.text_input(
+            "Type your message here…",
+            key=text_input_key,
+            on_change=_send_on_enter
+        )
+
+        # b) File uploader (PDF, PNG, XLSX)
         uploaded_file = st.file_uploader(
             "Attach a PDF, PNG or XLSX file:",
             type=["pdf", "png", "xlsx"],
             key=f"fileuploader_{index}"
         )
 
-        col_send, col_upload = st.columns([1, 1])
-        with col_send:
-            if st.button("Send Text", key=f"send_text_{index}"):
-                if new_message.strip():
-                    add_comment(
-                        index,
-                        st.session_state.user_name,
-                        new_message.strip(),
-                        attachment=None
-                    )
-                    # Clear the text box if that key exists
-                    if text_input_key in st.session_state:
-                        st.session_state[text_input_key] = ""
-                    st.rerun()
+        # c) Hidden “dummy” send button (only to force rerun if file is selected but user presses ENTER in file selector)
+        st.button("._dummy_", key=f"dummy_{index}", help="")
 
-        with col_upload:
-            if st.button("Upload File", key=f"upload_file_{index}"):
-                if uploaded_file is not None:
-                    # Create a unique “safe” filename:
-                    timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
-                    safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
-                    save_path = os.path.join(UPLOADS_DIR, safe_filename)
-                    # Write the file’s bytes to disk:
-                    with open(save_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    # Record this upload as a comment with no text, just an attachment
-                    add_comment(
-                        index,
-                        st.session_state.user_name,
-                        text="",
-                        attachment=safe_filename
-                    )
-                    st.success(f"Uploaded: {uploaded_file.name}")
-                    st.rerun()
+        # d) “Upload File” button (separate)
+        if st.button("Upload File", key=f"upload_file_{index}"):
+            if uploaded_file is not None:
+                # Create a unique “safe” filename:
+                timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+                safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
+                save_path = os.path.join(UPLOADS_DIR, safe_filename)
+                # Write the file’s bytes to disk:
+                with open(save_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                # Record this upload as a comment with no text, just an attachment
+                add_comment(
+                    index,
+                    st.session_state.user_name,
+                    text="",
+                    attachment=safe_filename
+                )
+                st.success(f"Uploaded: {uploaded_file.name}")
+                st.rerun()
+
+    # End of “detail” page
 
