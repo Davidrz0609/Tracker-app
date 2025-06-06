@@ -5,27 +5,42 @@ import os
 from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 
-# --- App Config ---
-st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
+# -------------------------------------------
+# ------- APP CONFIG + STATE INITIALIZATION --
+# -------------------------------------------
+st.set_page_config(
+    page_title="Tito's Depot Help Center",
+    layout="wide",
+    page_icon="🛒"
+)
 
-# --- File Paths ---
 REQUESTS_FILE = "requests.json"
 COMMENTS_FILE = "comments.json"
 UPLOADS_DIR = "uploads"
-os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+# Ensure the uploads directory exists
+if not os.path.exists(UPLOADS_DIR):
+    os.makedirs(UPLOADS_DIR)
+
+# Example users (username: password). Replace or expand as needed.
+VALID_USERS = {
+    "andres": "password123",
+    "marcela": "pwd456",
+    "tito": "secret789"
+}
 
 # --- Helper: Colored Status Badge ---
 def format_status_badge(status):
     status = status.upper()
     color_map = {
-        "PENDING": "#f39c12",         # Orange
-        "READY": "#2ecc71",           # Green
-        "IN TRANSIT": "#3498db",      # Light Blue
-        "ORDERED": "#9b59b6",         # Purple
-        "INCOMPLETE": "#e67e22",      # Dark Orange
-        "CANCELLED": "#e74c3c",       # Red
+        "PENDING": "#f39c12",
+        "READY": "#2ecc71",
+        "IN TRANSIT": "#3498db",
+        "ORDERED": "#9b59b6",
+        "INCOMPLETE": "#e67e22",
+        "CANCELLED": "#e74c3c",
     }
-    color = color_map.get(status, "#7f8c8d")  # Default: Gray
+    color = color_map.get(status, "#7f8c8d")
     return f"""
     <span style="
         background-color: {color};
@@ -38,7 +53,7 @@ def format_status_badge(status):
     ">{status}</span>
     """
 
-# --- Persistence ---
+# --- Persistence Helpers ---
 def load_data():
     if os.path.exists(REQUESTS_FILE):
         with open(REQUESTS_FILE, "r") as f:
@@ -58,43 +73,36 @@ def save_data():
     with open(COMMENTS_FILE, "w") as f:
         json.dump(st.session_state.comments, f)
 
-# --- Navigation + State ---
-if "page" not in st.session_state:
-    st.session_state.page = "home"
-if "requests" not in st.session_state or "comments" not in st.session_state:
-    load_data()
-if "selected_request" not in st.session_state:
-    st.session_state.selected_request = None
-if "user_name" not in st.session_state:
-    # Placeholder default user; in practice, you'd prompt for login.
-    st.session_state.user_name = "User"
-
-def go_to(page):
-    st.session_state.page = page
-    st.rerun()
-
 def add_request(data):
     index = len(st.session_state.requests)
     st.session_state.requests.append(data)
+    # Initialize an empty comment list for this new request
     st.session_state.comments[str(index)] = []
     save_data()
 
-def add_comment(index, author, text, attachment=None):
+def add_comment(index, author, text="", attachment=None):
+    """
+    Add a comment to the request at `index`. If `attachment` is provided,
+    it should be the filename (inside UPLOADS_DIR) of the uploaded file.
+    """
     key = str(index)
     if key not in st.session_state.comments:
         st.session_state.comments[key] = []
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    comment_obj = {"author": author, "text": text, "when": now_str}
+    entry = {
+        "author": author,
+        "text": text,
+        "when": datetime.now().strftime("%Y-%m-%d %H:%M")
+    }
     if attachment:
-        comment_obj["attachment"] = attachment
-    st.session_state.comments[key].append(comment_obj)
+        entry["attachment"] = attachment
+    st.session_state.comments[key].append(entry)
     save_data()
 
 def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        # Re-index comments so keys remain 0..N-1
+        # Re-index comments so their keys remain 0..(N-1)
         st.session_state.comments = {
             str(i): st.session_state.comments.get(str(i), [])
             for i in range(len(st.session_state.requests))
@@ -104,11 +112,50 @@ def delete_request(index):
         st.success("🗑️ Request deleted successfully.")
         go_to("requests")
 
+def go_to(page):
+    st.session_state.page = page
+    st.rerun()
+
+# Initialize session_state keys if missing
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
+if "page" not in st.session_state:
+    st.session_state.page = "login"
+if "requests" not in st.session_state or "comments" not in st.session_state:
+    load_data()
+if "selected_request" not in st.session_state:
+    st.session_state.selected_request = None
+
 # -------------------------------------------
-# ---------- “Home” Page  -------------------
+# ---------------- LOGIN PAGE ----------------
+# -------------------------------------------
+if not st.session_state.authenticated:
+    st.markdown("## 🔒 Please Log In")
+    st.write("Enter your username and password to continue.")
+    username_input = st.text_input("Username")
+    password_input = st.text_input("Password", type="password")
+    if st.button("🔑 Log In"):
+        if username_input in VALID_USERS and VALID_USERS[username_input] == password_input:
+            st.session_state.authenticated = True
+            st.session_state.user_name = username_input
+            st.session_state.page = "home"
+            st.success(f"Welcome, **{username_input}**!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid username or password.")
+    st.stop()
+
+# -------------------------------------------
+# ------------- AUTHENTICATED ---------------
+# -------------------------------------------
+
+# -------------------------------------------
+# ---------------- HOME PAGE ----------------
 # -------------------------------------------
 if st.session_state.page == "home":
-    # --- Global Styling ---
+    # Global styling
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -118,6 +165,11 @@ if st.session_state.page == "home":
         color: #003366;
         font-weight: 700;
         margin-bottom: 0.5rem;
+    }
+    .logout-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
     }
     div.stButton > button {
         background-color: #ffffff !important;
@@ -136,11 +188,17 @@ if st.session_state.page == "home":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Section Header ---
-    st.markdown("## 🏠 Welcome to the Help Center")
-    st.markdown("### What can we help you with today?")
+    # Log Out button
+    with st.container():
+        if st.button("🚪 Log Out", key="logout"):
+            st.session_state.authenticated = False
+            st.session_state.user_name = ""
+            st.session_state.page = "login"
+            st.rerun()
 
-    # --- Main Navigation ---
+    st.markdown("## 🏠 Welcome to the Help Center")
+    st.markdown(f"Logged in as: **{st.session_state.user_name}**")
+
     with st.container():
         col1, col2 = st.columns(2)
         with col1:
@@ -150,30 +208,29 @@ if st.session_state.page == "home":
             if st.button("🛒 Sales Order Request", use_container_width=True):
                 go_to("sales_order")
 
-    # --- Divider ---
     st.markdown("<hr style='margin: 2rem 0;'>", unsafe_allow_html=True)
 
-    # --- Button to view All Requests ---
-    with st.container():
-        if st.button("📋 View All Requests", use_container_width=True):
-            go_to("requests")
+    if st.button("📋 View All Requests", use_container_width=True):
+        go_to("requests")
 
 # -------------------------------------------
-# ------- “Purchase Request” Page ----------
+# -------------- PURCHASE PAGE  -------------
 # -------------------------------------------
 elif st.session_state.page == "purchase":
     st.markdown("## 💲 Purchase Request Form")
+    st.markdown(
+        f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)",
+        unsafe_allow_html=True
+    )
+    st.markdown("<hr>", unsafe_allow_html=True)
 
-    # --- Global Styles for this page ---
+    if "purchase_item_rows" not in st.session_state:
+        st.session_state.purchase_item_rows = 1
+    st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
+
+    # Styling for inputs
     st.markdown("""
     <style>
-    html, body, [class*="css"] {
-        font-family: 'Segoe UI', sans-serif;
-    }
-    h1, h2, h3, h4 {
-        color: #003366;
-        font-weight: 600;
-    }
     .stTextInput > div > div > input,
     .stSelectbox > div, .stDateInput > div {
         background-color: #f7f9fc !important;
@@ -184,17 +241,9 @@ elif st.session_state.page == "purchase":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Track how many item rows we have ---
-    if "purchase_item_rows" not in st.session_state:
-        st.session_state.purchase_item_rows = 1
-    st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
-
-    # ------------------------------------------------------------------
-    # --- 1) FORM FIELDS (manual input only) ---
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
-        # Moved "Purchase Order#" here
         po_number = st.text_input(
             "Purchase Order#",
             value="",
@@ -209,11 +258,10 @@ elif st.session_state.page == "purchase":
             [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"]
         )
     with col2:
-        # Moved "Tracking# (optional)" here
         order_number = st.text_input(
             "Tracking# (optional)",
             value="",
-            placeholder="e.g. PO-2025-12345"
+            placeholder="e.g. TRK-45678"
         )
         proveedor = st.text_input(
             "Proveedor",
@@ -225,50 +273,31 @@ elif st.session_state.page == "purchase":
             [" ", "Wire", "Cheque", "Credito", "Efectivo"]
         )
 
-    # ------------------------------------------------------------------
-    # --- 2) ITEM ROWS (dynamic manual input) ---
     st.markdown("### 🧾 Items to Order")
     descriptions = []
     quantities = []
-
     for i in range(st.session_state.purchase_item_rows):
         colA, colB = st.columns(2)
         descriptions.append(
-            colA.text_input(
-                f"Description #{i+1}",
-                value="",
-                key=f"po_desc_{i}"
-            )
+            colA.text_input(f"Description #{i+1}", value="", key=f"po_desc_{i}")
         )
         quantities.append(
-            colB.text_input(
-                f"Quantity #{i+1}",
-                value="",
-                key=f"po_qty_{i}"
-            )
+            colB.text_input(f"Quantity #{i+1}", value="", key=f"po_qty_{i}")
         )
 
-    # “Add/Remove” Buttons Below Items
     col_add, col_remove = st.columns([1, 1])
     with col_add:
         if st.button("➕ Add another item", key="add_purchase"):
             st.session_state.purchase_item_rows += 1
     with col_remove:
-        if (
-            st.session_state.purchase_item_rows > 1
-            and st.button("❌ Remove last item", key="remove_purchase")
-        ):
+        if (st.session_state.purchase_item_rows > 1 and
+            st.button("❌ Remove last item", key="remove_purchase")):
             st.session_state.purchase_item_rows -= 1
 
-    # ------------------------------------------------------------------
-    # --- 3) SHIPPING INFORMATION ---
     st.markdown("### 🚚 Shipping Information")
     col3, col4 = st.columns(2)
     with col3:
-        order_date = st.date_input(
-            "Order Date",
-            value=date.today()
-        )
+        order_date = st.date_input("Order Date", value=date.today())
     with col4:
         eta_date = st.date_input("ETA Date")
     shipping_method = st.selectbox(
@@ -276,8 +305,6 @@ elif st.session_state.page == "purchase":
         [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"]
     )
 
-    # ------------------------------------------------------------------
-    # --- 4) SUBMIT + BACK BUTTONS ---
     st.markdown("---")
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
@@ -292,18 +319,16 @@ elif st.session_state.page == "purchase":
                     except ValueError:
                         cleaned_quantities.append(q)
 
-            if (
-                not cleaned_descriptions
-                or not cleaned_quantities
-                or status.strip() == " "
-                or encargado.strip() == " "
-            ):
+            if (not cleaned_descriptions or
+                not cleaned_quantities or
+                status.strip() == " " or
+                encargado.strip() == " "):
                 st.error("❗ Please complete required fields: Status, Encargado, and at least one item.")
             else:
                 add_request({
                     "Type": "💲",
-                    "Order#": order_number,
-                    "Invoice": po_number,
+                    "Order#": order_number,     # Tracking goes here
+                    "Invoice": po_number,       # PO goes here
                     "Date": str(order_date),
                     "Status": status,
                     "Shipping Method": shipping_method,
@@ -323,21 +348,22 @@ elif st.session_state.page == "purchase":
             go_to("home")
 
 # -------------------------------------------
-# -------- “Sales Order Request” Page -------
+# --------- SALES ORDER REQUEST PAGE --------
 # -------------------------------------------
 elif st.session_state.page == "sales_order":
     st.markdown("## 🛒 Sales Order Request Form")
+    st.markdown(
+        f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)",
+        unsafe_allow_html=True
+    )
+    st.markdown("<hr>", unsafe_allow_html=True)
 
-    # --- Global Styles for this page ---
+    if "invoice_item_rows" not in st.session_state:
+        st.session_state.invoice_item_rows = 1
+    st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
+
     st.markdown("""
     <style>
-    html, body, [class*="css"] {
-        font-family: 'Segoe UI', sans-serif;
-    }
-    h1, h2, h3, h4 {
-        color: #003366;
-        font-weight: 600;
-    }
     .stTextInput > div > div > input,
     .stSelectbox > div, .stDateInput > div {
         background-color: #f7f9fc !important;
@@ -348,21 +374,10 @@ elif st.session_state.page == "sales_order":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Track how many item rows we have for invoices ---
-    if "invoice_item_rows" not in st.session_state:
-        st.session_state.invoice_item_rows = 1
-    st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
-
-    # ------------------------------------------------------------------
-    # --- 1) FORM FIELDS (fully manual; no PDF upload) ---
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
-        order_number = st.text_input(
-            "Ref# (optional)",
-            value="",
-            placeholder="e.g. SO-2025-001"
-        )
+        order_number = st.text_input("Ref# (optional)", value="", placeholder="e.g. SO-2025-001")
         status = st.selectbox(
             "Status *",
             [" ", "PENDING", "CONFIRMED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
@@ -372,74 +387,39 @@ elif st.session_state.page == "sales_order":
             [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"]
         )
     with col2:
-        sales_order_number = st.text_input(
-            "Tracking# (optional)",
-            value="",
-            placeholder="e.g. TRK45678"
-        )
-        cliente = st.text_input(
-            "Cliente",
-            value="",
-            placeholder="e.g. TechCorp LLC"
-        )
-        pago = st.selectbox(
-            "Método de Pago",
-            [" ", "Wire", "Cheque", "Credito", "Efectivo"]
-        )
+        sales_order_number = st.text_input("Tracking# (optional)", value="", placeholder="e.g. TRK45678")
+        cliente = st.text_input("Cliente", value="", placeholder="e.g. TechCorp LLC")
+        pago = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"])
 
-    # ------------------------------------------------------------------
-    # --- 2) ITEM ROWS (dynamic manual input) ---
     st.markdown("### 🧾 Items to Invoice")
     descriptions = []
     quantities = []
-
     for i in range(st.session_state.invoice_item_rows):
         colA, colB = st.columns(2)
         descriptions.append(
-            colA.text_input(
-                f"Description #{i+1}",
-                value="",
-                key=f"so_desc_{i}"
-            )
+            colA.text_input(f"Description #{i+1}", value="", key=f"so_desc_{i}")
         )
         quantities.append(
-            colB.text_input(
-                f"Quantity #{i+1}",
-                value="",
-                key=f"so_qty_{i}"
-            )
+            colB.text_input(f"Quantity #{i+1}", value="", key=f"so_qty_{i}")
         )
 
-    # “Add/Remove” Buttons Below Items
     col_add, col_remove = st.columns([1, 1])
     with col_add:
         if st.button("➕ Add another item", key="add_invoice"):
             st.session_state.invoice_item_rows += 1
     with col_remove:
-        if (
-            st.session_state.invoice_item_rows > 1
-            and st.button("❌ Remove last item", key="remove_invoice")
-        ):
+        if (st.session_state.invoice_item_rows > 1 and
+            st.button("❌ Remove last item", key="remove_invoice")):
             st.session_state.invoice_item_rows -= 1
 
-    # ------------------------------------------------------------------
-    # --- 3) SHIPPING INFORMATION ---
     st.markdown("### 🚚 Shipping Information")
     col3, col4 = st.columns(2)
     with col3:
-        order_date = st.date_input(
-            "Order Date",
-            value=date.today()
-        )
+        order_date = st.date_input("Order Date", value=date.today())
     with col4:
         eta_date = st.date_input("ETA Date")
-    shipping_method = st.selectbox(
-        "Shipping Method",
-        [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"]
-    )
+    shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"])
 
-    # ------------------------------------------------------------------
-    # --- 4) SUBMIT + BACK BUTTONS ---
     st.markdown("---")
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
@@ -454,18 +434,16 @@ elif st.session_state.page == "sales_order":
                     except ValueError:
                         cleaned_quantities.append(q)
 
-            if (
-                not cleaned_descriptions
-                or not cleaned_quantities
-                or status.strip() == " "
-                or encargado.strip() == " "
-            ):
+            if (not cleaned_descriptions or
+                not cleaned_quantities or
+                status.strip() == " " or
+                encargado.strip() == " "):
                 st.error("❗ Please complete required fields: Status, Encargado, and at least one item.")
             else:
                 add_request({
                     "Type": "🛒",
-                    "Order#": order_number,
-                    "Invoice": sales_order_number,
+                    "Order#": order_number,             # Sales order#
+                    "Invoice": sales_order_number,       # Tracking
                     "Date": str(order_date),
                     "Status": status,
                     "Shipping Method": shipping_method,
@@ -485,18 +463,16 @@ elif st.session_state.page == "sales_order":
             go_to("home")
 
 # -------------------------------------------
-# -------- “All Requests” Page --------------
+# -------- ALL REQUESTS / EXPORT PAGE -------
 # -------------------------------------------
 elif st.session_state.page == "requests":
-    # --- Auto-refresh every second ---
-    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
+    st.markdown(f"## 📋 All Requests   |   Logged in as: **{st.session_state.user_name}**")
+    st.markdown("<hr>", unsafe_allow_html=True)
 
-    # --- Re-load data from disk so we see the latest requests ---
+    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
     load_data()
 
-    st.header("📋 All Requests")
-
-    # --- Filters ---
+    # Filters
     col1, col2, col3 = st.columns([3, 2, 2])
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests...")
@@ -511,55 +487,44 @@ elif st.session_state.page == "requests":
             ["All", "💲 Purchase", "🛒 Sales"]
         )
 
-    # --- Build a list of filtered requests ---
     filtered_requests = []
     for req in st.session_state.requests:
         matches_search = search_term.lower() in json.dumps(req).lower()
         matches_status = (status_filter == "All") or (req.get("Status", "").upper() == status_filter)
-        matches_type = (
-            type_filter == "All"
-            or req.get("Type") == type_filter.split()[0]
-        )
+        matches_type = (type_filter == "All" or req.get("Type") == type_filter.split()[0])
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
 
-    # --- Sort by soonest ETA date (earliest first) ---
-    from datetime import datetime as _dt, date as _date
-
+    from datetime import datetime as _dt
     def parse_eta(req):
         eta_str = req.get("ETA Date", "")
         try:
             return _dt.strptime(eta_str, "%Y-%m-%d").date()
         except:
-            return _date.max
+            return date.max
 
     filtered_requests = sorted(filtered_requests, key=parse_eta)
 
     if filtered_requests:
-        # --- CSV EXPORT BUTTON ---
+        # CSV Export
         flattened = []
         for req in filtered_requests:
             flat_req = {}
             flat_req["Type"] = req.get("Type", "")
-
-            # Determine correct Order#/Tracking logic
             if req.get("Type") == "💲":
                 flat_req["Order#"] = req.get("Invoice", "")
                 flat_req["Tracking Number"] = req.get("Order#", "")
             else:
                 flat_req["Order#"] = req.get("Order#", "")
                 flat_req["Tracking Number"] = req.get("Invoice", "")
-
-            # Include all other fields except “Order#” and “Invoice”
             for k, v in req.items():
                 key_lower = k.lower()
-                if key_lower in ("order#", "invoice", "attachments", "statushistory", "comments", "type"):
+                if key_lower in ("order#", "invoice", "attachments", "statushistory", "comments", "commentshistory", "type"):
                     continue
                 if isinstance(v, list):
                     flat_req[k] = ";".join(str(x) for x in v)
                 else:
                     flat_req[k] = v
-
             flattened.append(flat_req)
 
         df_export = pd.DataFrame(flattened)
@@ -571,7 +536,7 @@ elif st.session_state.page == "requests":
             mime="text/csv"
         )
 
-        # --- Table Header Styling (larger headers) ---
+        # Table styling
         st.markdown("""
         <style>
         .header-row {
@@ -592,7 +557,7 @@ elif st.session_state.page == "requests":
         </style>
         """, unsafe_allow_html=True)
 
-        # --- Table Header ---
+        # Table header
         header_cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
         headers = [
             "Type", "Ref#", "Description", "Qty", "Status",
@@ -601,12 +566,11 @@ elif st.session_state.page == "requests":
         for col, header in zip(header_cols, headers):
             col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
 
-        today = _date.today()
-
-        # --- Table Rows ---
+        today = date.today()
         for i, req in enumerate(filtered_requests):
             with st.container():
                 cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
+
                 status_val = req.get("Status", "").upper()
                 eta_str = req.get("ETA Date", "")
                 try:
@@ -620,11 +584,14 @@ elif st.session_state.page == "requests":
                     and status_val not in ("READY", "CANCELLED")
                 )
 
-                # 1) Type icon
+                # 1) Type
                 type_icon = req.get("Type", "")
-                cols[0].markdown(f"<span class='type-icon'>{type_icon}</span>", unsafe_allow_html=True)
+                cols[0].markdown(
+                    f"<span class='type-icon'>{type_icon}</span>",
+                    unsafe_allow_html=True
+                )
 
-                # 2) Ref#: use Invoice if Purchase, else use Order#
+                # 2) Ref#
                 if req.get("Type") == "💲":
                     ref_val = req.get("Invoice", "")
                 else:
@@ -636,7 +603,7 @@ elif st.session_state.page == "requests":
                 desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
                 cols[2].write(desc_display)
 
-                # 4) Quantity
+                # 4) Qty
                 qty_list = req.get("Quantity", [])
                 if isinstance(qty_list, list):
                     qty_display = ", ".join(str(q) for q in qty_list)
@@ -677,6 +644,10 @@ elif st.session_state.page == "requests":
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
 elif st.session_state.page == "detail":
+    # ─────────────────────────────────────────────────────────────────────
+    #  "Request Details" PAGE (WhatsApp‐style chat + file uploads)
+    # ─────────────────────────────────────────────────────────────────────
+
     st.markdown("## 📂 Request Details")
     st.markdown(
         f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to All Requests](#)",
@@ -850,15 +821,14 @@ elif st.session_state.page == "detail":
             go_to("requests")
 
     # ─────────────────────────────────────────────────────────────────────
-    #  COMMENTS SECTION (WhatsApp-style chat bubbles & file-upload)
-    #  + ENTER-to-send + “upload on select” + real-file downloads
+    #  COMMENTS SECTION (WhatsApp‐style, centered chat bubbles & file‐upload)
     # ─────────────────────────────────────────────────────────────────────
 
-    # 1) Inject CSS to style bubbles and bottom input bar
+    # 1) Inject CSS (narrower bubbles, WhatsApp green for outgoing)
     st.markdown(
         """
         <style>
-        /* ----------- CHAT BUBBLE STYLES ----------- */
+        /* Incoming author label (gray, left) */
         .chat-author-in {
             font-size: 12px;
             color: #555;
@@ -866,6 +836,7 @@ elif st.session_state.page == "detail":
             margin-top: 6px;
             clear: both;
         }
+        /* Outgoing author label (WhatsApp green, right) */
         .chat-author-out {
             font-size: 12px;
             color: #25D366;
@@ -874,6 +845,7 @@ elif st.session_state.page == "detail":
             clear: both;
             text-align: right;
         }
+        /* Incoming bubble (light gray, left) */
         .chat-bubble-in {
             background: #EDEDED;
             color: #000;
@@ -885,6 +857,7 @@ elif st.session_state.page == "detail":
             clear: both;
             word-wrap: break-word;
         }
+        /* Outgoing bubble (WhatsApp green, right) */
         .chat-bubble-out {
             background: #25D366;
             color: #FFF;
@@ -896,12 +869,14 @@ elif st.session_state.page == "detail":
             clear: both;
             word-wrap: break-word;
         }
+        /* Timestamp below bubble (small, gray) */
         .chat-timestamp {
             font-size: 10px;
             color: #888;
             margin-top: 2px;
             margin-bottom: 8px;
         }
+        /* Attachment box (light blue background) */
         .chat-attachment {
             background: #DDEEFF;
             color: #003366;
@@ -918,196 +893,118 @@ elif st.session_state.page == "detail":
             text-decoration: none;
             font-weight: 600;
         }
+        /* Clear floats */
         .clearfix {
             clear: both;
-        }
-
-        /* -------- BOTTOM INPUT BAR STYLES -------- */
-        .bottom-input-container {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: #2a2f32;
-            padding: 8px 12px;
-            display: flex;
-            align-items: center;
-            z-index: 100;
-        }
-        .bottom-input-container .stTextInput > div > div > input {
-            border-radius: 50px;
-            background-color: #40474f;
-            color: #fff;
-            padding: 10px 16px;
-            border: none;
-            font-size: 14px;
-            width: 100%;
-        }
-        .bottom-input-container .stTextInput .stMarkdown {
-            display: none;
-        }
-        .bottom-input-container .stFileUploader > div {
-            display: flex;
-            align-items: center;
-            background: transparent;
-            padding: 0;
-        }
-        .bottom-input-container .stFileUploader .css-1r6slb0 {
-            display: none;
-        }
-        .bottom-input-container .stFileUploader svg,
-        .bottom-input-container .stFileUploader [type="file"] {
-            display: none;
-        }
-        .bottom-input-container .file-attach-button {
-            font-size: 20px;
-            color: #fff;
-            cursor: pointer;
-            margin-right: 12px;
-            user-select: none;
-        }
-        .bottom-input-container .send-button button {
-            border-radius: 50%;
-            background-color: #25D366;
-            color: white;
-            width: 40px;
-            height: 40px;
-            padding: 0;
-            font-size: 20px;
-        }
-        .bottom-input-container .send-button button:hover {
-            background-color: #20b45a !important;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    # 2) Render chat history
+    # 2) Render chat inside a centered column
     st.markdown("### 💬 Comments (Chat-Style)")
-    existing_comments = st.session_state.comments.get(str(index), [])
+    col_l, col_center, col_r = st.columns([1, 6, 1])
+    with col_center:
+        existing_comments = st.session_state.comments.get(str(index), [])
 
-    for comment_idx, comment in enumerate(existing_comments):
-        author = comment["author"]
-        text = comment.get("text", "")
-        when = comment.get("when", "")
-        attachment = comment.get("attachment", None)
+        for comment in existing_comments:
+            author = comment["author"]
+            text = comment.get("text", "")
+            when = comment.get("when", "")
+            attachment = comment.get("attachment", None)
 
-        # Render attachment with a unique key
-        if attachment:
-            file_path = os.path.join(UPLOADS_DIR, attachment)
-            try:
-                with open(file_path, "rb") as f:
-                    file_bytes = f.read()
-
-                download_key = f"dl_{index}_{comment_idx}_{attachment}"
-                st.download_button(
-                    label=f"📎 {attachment}",
-                    data=file_bytes,
-                    file_name=attachment,
-                    mime="application/octet-stream",
-                    key=download_key
-                )
+            # If there's an attachment, show it first in a styled box
+            if attachment:
+                file_path = os.path.join(UPLOADS_DIR, attachment)
                 if author == st.session_state.user_name:
-                    st.markdown(f'<div class="chat-author-out">{author}</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="chat-timestamp" style="text-align: right;">{when}</div>', unsafe_allow_html=True)
+                    # Outgoing attachment (right-aligned)
+                    st.markdown(
+                        f'<div class="chat-author-out">{author}</div>'
+                        f'<div class="chat-attachment" style="float: right;">'
+                        f'📎 <a href="/{file_path}" class="attachment-link" download>{attachment}</a>'
+                        f'</div>'
+                        f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
+                        f'<div class="clearfix"></div>',
+                        unsafe_allow_html=True
+                    )
                 else:
-                    st.markdown(f'<div class="chat-author-in">{author}</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="chat-timestamp" style="text-align: left;">{when}</div>', unsafe_allow_html=True)
+                    # Incoming attachment (left-aligned)
+                    st.markdown(
+                        f'<div class="chat-author-in">{author}</div>'
+                        f'<div class="chat-attachment">'
+                        f'📎 <a href="/{file_path}" class="attachment-link" download>{attachment}</a>'
+                        f'</div>'
+                        f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
+                        f'<div class="clearfix"></div>',
+                        unsafe_allow_html=True
+                    )
 
-                st.markdown('<div class="clearfix"></div>', unsafe_allow_html=True)
-            except FileNotFoundError:
-                st.error(f"⚠️ Attachment not found: {attachment}")
+            # Then render the text bubble if any text exists
+            if text:
+                if author == st.session_state.user_name:
+                    # Outgoing text: right-aligned green bubble
+                    st.markdown(
+                        f'<div class="chat-author-out">{author}</div>'
+                        f'<div class="chat-bubble-out">{text}</div>'
+                        f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
+                        f'<div class="clearfix"></div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    # Incoming text: left-aligned gray bubble
+                    st.markdown(
+                        f'<div class="chat-author-in">{author}</div>'
+                        f'<div class="chat-bubble-in">{text}</div>'
+                        f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
+                        f'<div class="clearfix"></div>',
+                        unsafe_allow_html=True
+                    )
 
-        # Render text bubble
-        if text:
-            if author == st.session_state.user_name:
-                st.markdown(
-                    f'<div class="chat-author-out">{author}</div>'
-                    f'<div class="chat-bubble-out">{text}</div>'
-                    f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
-                    f'<div class="clearfix"></div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f'<div class="chat-author-in">{author}</div>'
-                    f'<div class="chat-bubble-in">{text}</div>'
-                    f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
-                    f'<div class="clearfix"></div>',
-                    unsafe_allow_html=True
-                )
+        # 3) Input row: text_input, file_uploader, and two buttons
+        st.markdown("---")
+        text_input_key = f"new_msg_{index}"
+        new_message = st.text_input("Type your message here…", key=text_input_key)
 
-    # 3) BOTTOM “WhatsApp-Style” INPUT BAR
-    def _send_on_enter():
-        typed = st.session_state[text_input_key]
-        if typed.strip():
-            add_comment(
-                index,
-                st.session_state.user_name,
-                typed.strip(),
-                attachment=None
-            )
-            st.session_state[text_input_key] = ""
-            # No explicit rerun needed; Streamlit automatically reruns after callback
+        # Only allow PDF, PNG, or XLSX:
+        uploaded_file = st.file_uploader(
+            "Attach a PDF, PNG or XLSX file:",
+            type=["pdf", "png", "xlsx"],
+            key=f"fileuploader_{index}"
+        )
 
-    def _upload_on_select():
-        uploaded = st.session_state[file_uploader_key]
-        if uploaded is not None:
-            original_name = uploaded.name
-            save_path = os.path.join(UPLOADS_DIR, original_name)
+        col_send, col_upload = st.columns([1, 1])
+        with col_send:
+            if st.button("Send Text", key=f"send_text_{index}"):
+                if new_message.strip():
+                    add_comment(
+                        index,
+                        st.session_state.user_name,
+                        new_message.strip(),
+                        attachment=None
+                    )
+                    # Clear the text box only if the key already exists
+                    if text_input_key in st.session_state:
+                        st.session_state[text_input_key] = ""
+                    st.rerun()
 
-            with open(save_path, "wb") as f:
-                f.write(uploaded.getbuffer())
+        with col_upload:
+            if st.button("Upload File", key=f"upload_file_{index}"):
+                if uploaded_file is not None:
+                    # Create a unique “safe” filename:
+                    timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+                    safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
+                    save_path = os.path.join(UPLOADS_DIR, safe_filename)
+                    # Write the file’s bytes to disk:
+                    with open(save_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    # Record this upload as a comment with no text, just an attachment
+                    add_comment(
+                        index,
+                        st.session_state.user_name,
+                        text="",
+                        attachment=safe_filename
+                    )
+                    st.success(f"Uploaded: {uploaded_file.name}")
+                    st.rerun()
 
-            add_comment(
-                index,
-                st.session_state.user_name,
-                text="",
-                attachment=original_name
-            )
-            # Clear uploader so it resets
-            st.session_state[file_uploader_key] = None
-            st.experimental_rerun()
-
-    st.markdown("<div class='bottom-input-container'>", unsafe_allow_html=True)
-
-    # a) 📎 icon (file uploader trigger)
-    st.markdown("<div class='file-attach-button'>&nbsp;📎&nbsp;</div>", unsafe_allow_html=True)
-    file_uploader_key = f"fileuploader_{index}"
-    st.file_uploader(
-        "",
-        type=["pdf", "png", "xlsx"],
-        key=file_uploader_key,
-        label_visibility="collapsed",
-        on_change=_upload_on_select
-    )
-
-    # b) Middle text_input (ENTER-to-send)
-    text_input_key = f"new_msg_{index}"
-    st.text_input(
-        "",
-        key=text_input_key,
-        placeholder="Type your message…",
-        on_change=_send_on_enter,
-        label_visibility="collapsed"
-    )
-
-    # c) ➤ send button
-    st.markdown("<div class='send-button'>", unsafe_allow_html=True)
-    if st.button("➤", key=f"send_{index}", help="Send"):
-        typed = st.session_state[text_input_key]
-        if typed.strip():
-            add_comment(
-                index,
-                st.session_state.user_name,
-                typed.strip(),
-                attachment=None
-            )
-            st.session_state[text_input_key] = ""
-            st.experimental_rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-    # ─────────────────────────────────────────────────────────────────────
-    # End of “Request Details” page
