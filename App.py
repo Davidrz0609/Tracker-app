@@ -166,94 +166,10 @@ if "selected_request" not in st.session_state:
 # ---------------- LOGIN PAGE ----------------
 # -------------------------------------------
 if not st.session_state.authenticated:
-    # ────────────────────────────────────────────────────────────────────
-    #   Apply custom CSS so everything here uses Tito’s Depot blue tones
-    # ────────────────────────────────────────────────────────────────────
-    st.markdown(
-        """
-        <style>
-        /* Brand colors from the logo: deep navy → bright cyan gradient */
-        :root {
-            --tdc-dark-blue: #0B1F5D;   /* dark navy-ish */
-            --tdc-mid-blue: #2968F0;    /* medium royal blue */
-            --tdc-light-blue: #00D2FF;  /* bright cyan */
-        }
-
-        /* Center the logo and give some top‐padding */
-        .login-logo {
-            display: block;
-            margin-left: auto;
-            margin-right: auto;
-            width: 180px;
-            padding-top: 20px;
-        }
-
-        /* Header text style */
-        .login-header {
-            font-family: 'Segoe UI', sans-serif;
-            color: var(--tdc-mid-blue);
-            font-size: 28px;
-            font-weight: 700;
-            text-align: center;
-            margin-bottom: 8px;
-        }
-
-        /* Subtext under the header */
-        .login-subtext {
-            font-family: 'Segoe UI', sans-serif;
-            color: var(--tdc-dark-blue);
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        /* Style for the username/password inputs */
-        .stTextInput>div>div>input {
-            border: 2px solid var(--tdc-mid-blue) !important;
-            border-radius: 6px !important;
-            padding: 0.5rem !important;
-            background-color: #f7f9fc !important;
-            font-size: 16px;
-            color: var(--tdc-dark-blue);
-        }
-
-        /* Style for the login button */
-        div.stButton>button {
-            background: linear-gradient(
-                90deg,
-                var(--tdc-mid-blue) 0%,
-                var(--tdc-light-blue) 100%
-            ) !important;
-            color: white !important;
-            font-size: 18px !important;
-            font-weight: 600 !important;
-            border: none !important;
-            border-radius: 8px !important;
-            padding: 0.6rem 1.2rem !important;
-            width: 100% !important;
-            transition: opacity 0.2s ease;
-        }
-        div.stButton>button:hover {
-            opacity: 0.85 !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # ────────────────────────────────────────────────────────────────────
-    #   Logo + Header + Subtext
-    # ────────────────────────────────────────────────────────────────────
-    st.image("/mnt/data/Logo.png", use_column_width=False, width=180, caption=None, clamp=False, channels="RGB", output_format="PNG", class_="login-logo")
-    st.markdown("<div class='login-header'>🔒 Please Log In</div>", unsafe_allow_html=True)
-    st.markdown("<div class='login-subtext'>Enter your credentials to continue</div>", unsafe_allow_html=True)
-
-    # ────────────────────────────────────────────────────────────────────
-    #   Actual Inputs and Button
-    # ────────────────────────────────────────────────────────────────────
-    username_input = st.text_input("Username", placeholder="e.g. andres")
-    password_input = st.text_input("Password", type="password", placeholder="••••••••")
-
-    # Force the Login button to take the full width of the column
+    st.markdown("## 🔒 Please Log In")
+    st.write("Enter your username and password to continue.")
+    username_input = st.text_input("Username")
+    password_input = st.text_input("Password", type="password")
     if st.button("🔑 Log In"):
         if username_input in VALID_USERS and VALID_USERS[username_input] == password_input:
             st.session_state.authenticated = True
@@ -263,9 +179,7 @@ if not st.session_state.authenticated:
             st.rerun()
         else:
             st.error("❌ Invalid username or password.")
-
     st.stop()
-
 
 # -------------------------------------------
 # ------------- AUTHENTICATED ---------------
