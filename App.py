@@ -414,7 +414,7 @@ elif st.session_state.page == "sales_order":
         order_number = st.text_input("Ref# (optional)", value="", placeholder="e.g. SO-2025-001")
         status = st.selectbox(
             "Status *",
-            [" ", "PENDING", "CONFIRMED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
+            [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
         )
         encargado = st.selectbox(
             "Encargado *",
