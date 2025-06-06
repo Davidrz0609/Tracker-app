@@ -4,6 +4,8 @@ import json
 import os
 from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
+import pdfplumber
+from PIL import Image
 
 # -------------------------------------------
 # ------- APP CONFIG + STATE INITIALIZATION --
@@ -673,24 +675,22 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
-    #  “Request Details” PAGE (WhatsApp‐style chat + auto-refresh)
-    #  + auto-refresh comments every 1 second
+    #  “Request Details” PAGE (WhatsApp‐style chat + auto‐refresh)
+    #  + inline image/PDF previews, Enter‐to‐send, file uploads, download
     # ─────────────────────────────────────────────────────────────────────
 
-    # 1) Auto-refresh triggers a full rerun every second
+    # 1) Auto‐refresh every 1 second
     _ = st_autorefresh(interval=1000, limit=None, key=f"refresh_{st.session_state.selected_request}")
 
-    # 2) Reload from disk so we pick up comments (and requests) from all users
+    # 2) Reload shared data
     load_data()
 
+    # Header
     st.markdown("## 📂 Request Details")
-    st.markdown(
-        f"Logged in as: **{st.session_state.user_name}**",
-        unsafe_allow_html=True
-    )
+    st.markdown(f"Logged in as: **{st.session_state.user_name}**", unsafe_allow_html=True)
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Validate selected request index
+    # Validate index
     index = st.session_state.selected_request
     if index is None or index >= len(st.session_state.requests):
         st.error("Invalid request selected.")
@@ -707,366 +707,204 @@ elif st.session_state.page == "detail":
 
         with col1:
             # Ref# / Order#
-            order_number_val = request.get("Order#", "")
-            order_number = st.text_input(
-                "Ref#",
-                value=order_number_val,
-                key="detail_Order#"
-            )
-            if order_number != order_number_val:
-                updated_fields["Order#"] = order_number
+            prev = request.get("Order#", "")
+            v = st.text_input("Ref#", value=prev, key="detail_Order#")
+            if v != prev: updated_fields["Order#"] = v
 
-            # Dynamic rows for Description & Quantity
-            desc_list = request.get("Description", [])
-            qty_list = request.get("Quantity", [])
-            num_rows = max(len(desc_list), len(qty_list), 1)
+            # Items list
+            descs = request.get("Description", [])
+            qtys  = request.get("Quantity", [])
+            rows = max(len(descs), len(qtys), 1)
             st.markdown("#### 📋 Items")
-            new_descriptions = []
-            new_quantities = []
-            for i in range(num_rows):
-                cA, cB = st.columns(2)
-                desc_val = desc_list[i] if i < len(desc_list) else ""
-                qty_val = qty_list[i] if i < len(qty_list) else ""
-                new_desc = cA.text_input(
-                    f"Description #{i+1}",
-                    value=desc_val,
-                    key=f"detail_desc_{i}"
-                ).strip()
-                new_qty_raw = cB.text_input(
-                    f"Quantity #{i+1}",
-                    value=str(qty_val),
-                    key=f"detail_qty_{i}"
-                ).strip()
+            new_descs, new_qtys = [], []
+            for i in range(rows):
+                d_prev = descs[i] if i < len(descs) else ""
+                q_prev = qtys[i]  if i < len(qtys)  else ""
+                c1, c2 = st.columns(2)
+                d = c1.text_input(f"Description #{i+1}", value=d_prev, key=f"detail_desc_{i}").strip()
+                q_raw = c2.text_input(f"Quantity #{i+1}", value=str(q_prev), key=f"detail_qty_{i}").strip()
                 try:
-                    new_qty = int(float(new_qty_raw)) if new_qty_raw else ""
+                    q = int(float(q_raw)) if q_raw else ""
                 except:
-                    new_qty = new_qty_raw
-                new_descriptions.append(new_desc)
-                new_quantities.append(new_qty)
-            if new_descriptions != desc_list:
-                updated_fields["Description"] = new_descriptions
-            if new_quantities != qty_list:
-                updated_fields["Quantity"] = new_quantities
+                    q = q_raw
+                new_descs.append(d)
+                new_qtys.append(q)
+            if new_descs != descs: updated_fields["Description"] = new_descs
+            if new_qtys != qtys:   updated_fields["Quantity"]    = new_qtys
 
-            # Status dropdown
-            status_options = [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
-            current_status = request.get("Status", " ")
-            if current_status not in status_options:
-                current_status = " "
-            status = st.selectbox(
-                "Status",
-                status_options,
-                index=status_options.index(current_status),
-                key="detail_Status"
-            )
-            if status != current_status:
-                updated_fields["Status"] = status
+            # Status
+            opts = [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
+            curr = request.get("Status", " ")
+            if curr not in opts: curr = " "
+            s = st.selectbox("Status", opts, index=opts.index(curr), key="detail_Status")
+            if s != curr: updated_fields["Status"] = s
 
         with col2:
-            # Tracking# / Invoice
-            invoice_val = request.get("Invoice", "")
-            invoice = st.text_input(
-                "Tracking#",
-                value=invoice_val,
-                key="detail_Invoice"
-            )
-            if invoice != invoice_val:
-                updated_fields["Invoice"] = invoice
+            # Tracking# / Invoice field
+            inv_prev = request.get("Invoice", "")
+            inv = st.text_input("Tracking#", value=inv_prev, key="detail_Invoice")
+            if inv != inv_prev: updated_fields["Invoice"] = inv
 
-            # Proveedor vs Cliente
-            partner_label = "Proveedor" if is_purchase else "Cliente"
-            partner_val = request.get(partner_label, "")
-            partner = st.text_input(
-                partner_label,
-                value=partner_val,
-                key=f"detail_{partner_label}"
-            )
-            if partner != partner_val:
-                updated_fields[partner_label] = partner
+            # Proveedor / Cliente
+            label = "Proveedor" if is_purchase else "Cliente"
+            p_prev = request.get(label, "")
+            p = st.text_input(label, value=p_prev, key=f"detail_{label}")
+            if p != p_prev: updated_fields[label] = p
 
-            # Método de Pago
-            pago_val = request.get("Pago", " ")
-            pago = st.selectbox(
-                "Método de Pago",
-                [" ", "Wire", "Cheque", "Credito", "Efectivo"],
-                index=[" ", "Wire", "Cheque", "Credito", "Efectivo"].index(pago_val),
-                key="detail_Pago"
-            )
-            if pago != pago_val:
-                updated_fields["Pago"] = pago
+            # Pago
+            pago_prev = request.get("Pago", " ")
+            pago = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"],
+                                index=[" ", "Wire", "Cheque", "Credito", "Efectivo"].index(pago_prev),
+                                key="detail_Pago")
+            if pago != pago_prev: updated_fields["Pago"] = pago
 
             # Encargado
-            encargado_val = request.get("Encargado", " ")
-            encargado = st.selectbox(
-                "Encargado",
-                [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"],
-                index=[" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"].index(encargado_val),
-                key="detail_Encargado"
-            )
-            if encargado != encargado_val:
-                updated_fields["Encargado"] = encargado
+            enc_prev = request.get("Encargado", " ")
+            enc = st.selectbox("Encargado", [" ", "Andres","Tito","Luz","David","Marcela","John","Carolina","Thea"],
+                               index=[" ", "Andres","Tito","Luz","David","Marcela","John","Carolina","Thea"].index(enc_prev),
+                               key="detail_Encargado")
+            if enc != enc_prev: updated_fields["Encargado"] = enc
 
     # ──────────── SHIPPING INFORMATION ────────────
     with st.container():
         st.markdown("### 🚚 Shipping Information")
-        col3, col4 = st.columns(2)
-        with col3:
-            date_val = request.get("Date", str(date.today()))
-            order_date = st.date_input(
-                "Order Date",
-                value=pd.to_datetime(date_val),
-                key="detail_Date"
-            )
-            if str(order_date) != date_val:
-                updated_fields["Date"] = str(order_date)
-        with col4:
-            eta_val = request.get("ETA Date", str(date.today()))
-            eta_date = st.date_input(
-                "ETA Date",
-                value=pd.to_datetime(eta_val),
-                key="detail_ETA"
-            )
-            if str(eta_date) != eta_val:
-                updated_fields["ETA Date"] = str(eta_date)
+        c3, c4 = st.columns(2)
+        # Order Date
+        d_prev = request.get("Date", str(date.today()))
+        d_new  = c3.date_input("Order Date", value=pd.to_datetime(d_prev), key="detail_Date")
+        if str(d_new) != d_prev: updated_fields["Date"] = str(d_new)
+        # ETA Date
+        e_prev = request.get("ETA Date", str(date.today()))
+        e_new  = c4.date_input("ETA Date", value=pd.to_datetime(e_prev), key="detail_ETA")
+        if str(e_new) != e_prev: updated_fields["ETA Date"] = str(e_new)
+        # Shipping Method
+        sm_prev = request.get("Shipping Method", " ")
+        sm = st.selectbox("Shipping Method", [" ","Nivel 1 PU","Nivel 3 PU","Nivel 3 DEL"],
+                          index=[" ","Nivel 1 PU","Nivel 3 PU","Nivel 3 DEL"].index(sm_prev),
+                          key="detail_Shipping")
+        if sm != sm_prev: updated_fields["Shipping Method"] = sm
 
-        ship_val = request.get("Shipping Method", " ")
-        shipping_method = st.selectbox(
-            "Shipping Method",
-            [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"],
-            index=[" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"].index(ship_val),
-            key="detail_Shipping"
-        )
-        if shipping_method != ship_val:
-            updated_fields["Shipping Method"] = shipping_method
-
-    # ──────────── SAVE / DELETE / BACK BUTTONS ────────────
+    # ──────────── ACTION BUTTONS ────────────
     st.markdown("---")
-    col_save, col_delete, col_back = st.columns([2, 1, 1])
-    with col_save:
+    bs, bd, bb = st.columns([2,1,1])
+    with bs:
         if updated_fields and st.button("💾 Save Changes", use_container_width=True):
             request.update(updated_fields)
             st.session_state.requests[index] = request
             save_data()
             st.success("✅ Changes saved.")
             st.rerun()
-    with col_delete:
+    with bd:
         if st.button("🗑️ Delete Request", use_container_width=True):
             delete_request(index)
-    with col_back:
+    with bb:
         if st.button("⬅ Back to All Requests", use_container_width=True):
             go_to("requests")
 
     # ─────────────────────────────────────────────────────────────────────
-    #  COMMENTS SECTION (WhatsApp‐style, ENTER‐to‐send for both text & file)
+    #  COMMENTS SECTION (chat bubbles, inline previews, download, Enter/send)
     # ─────────────────────────────────────────────────────────────────────
 
-    # 1) Inject UPDATED CSS (nicer bubbles, softer colors, subtle shadows)
-    st.markdown(
-        """
-        <style>
-        /* Container padding around the whole chat area */
-        .chat-container {
-            padding: 8px;
-            background: #FFFFFF;
-            border-radius: 8px;
-        }
+    # Inject CSS for bubbles, attachments, timestamps
+    st.markdown("""
+    <style>
+      .chat-container{padding:8px;background:#fff;border-radius:8px;}
+      .chat-author-in{font-size:12px;font-weight:600;color:#555;margin:4px 0 2px 5px;text-align:left;clear:both;}
+      .chat-author-out{font-size:12px;font-weight:600;color:#25D366;margin:4px 5px 2px 0;text-align:right;clear:both;}
+      .chat-bubble-in,.chat-bubble-out{padding:10px 14px;border-radius:20px;margin:4px 0;max-width:60%;line-height:1.4;word-wrap:break-word;box-shadow:0 1px 3px rgba(0,0,0,0.1);position:relative;}
+      .chat-bubble-in{background:#F1F0F0;color:#000;float:left;clear:both;}
+      .chat-bubble-out{background:#DCF8C6;color:#000;float:right;clear:both;}
+      .chat-timestamp{font-size:10px;color:#888;margin-top:2px;}
+      .clearfix{clear:both;}
+    </style>
+    """, unsafe_allow_html=True)
 
-        /* ---------------------- AUTHOR LABELS ---------------------- */
-        /* Incoming author label (gray, left) */
-        .chat-author-in {
-            font-size: 12px;
-            font-weight: 600;
-            color: #555555;
-            margin: 4px 0 2px 5px;
-            text-align: left;
-            clear: both;
-        }
-        /* Outgoing author label (teal, right) */
-        .chat-author-out {
-            font-size: 12px;
-            font-weight: 600;
-            color: #25D366;
-            margin: 4px 5px 2px 0;
-            text-align: right;
-            clear: both;
-        }
-
-        /* ---------------------- BUBBLES ---------------------- */
-        /* Common bubble styles */
-        .chat-bubble-in,
-        .chat-bubble-out {
-            padding: 10px 14px;
-            border-radius: 20px;
-            margin: 4px 0;
-            max-width: 60%;
-            line-height: 1.4;
-            word-wrap: break-word;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            position: relative;
-        }
-        /* Incoming bubble (light gray, left) */
-        .chat-bubble-in {
-            background: #F1F0F0;
-            color: #000000;
-            float: left;
-            clear: both;
-        }
-        /* Outgoing bubble (light green, right) */
-        .chat-bubble-out {
-            background: #DCF8C6;
-            color: #000000;
-            float: right;
-            clear: both;
-        }
-
-        /* ---------------------- TIMESTAMPS ---------------------- */
-        /* Timestamp below each bubble */
-        .chat-timestamp {
-            font-size: 10px;
-            color: #888888;
-            margin-top: 2px;
-        }
-
-        /* ---------------------- ATTACHMENTS ---------------------- */
-        /* Attachment box (soft blue, left) */
-        .chat-attachment {
-            background: #E0F7FA;
-            color: #006064;
-            padding: 8px 12px;
-            border-radius: 12px;
-            margin: 6px 0;
-            max-width: 60%;
-            float: left;
-            clear: both;
-            word-wrap: break-word;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-        }
-        .attachment-link {
-            color: #006064;
-            text-decoration: underline;
-            font-weight: 600;
-        }
-
-        /* Clear floats between messages */
-        .clearfix {
-            clear: both;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # 2) Render chat inside a centered column (inside a .chat-container)
     st.markdown("### 💬 Comments (Chat-Style)")
-    col_l, col_center, col_r = st.columns([1, 6, 1])
-    with col_center:
-        # Wrap all existing comments inside a “chat-container” div
+    l, center, r = st.columns([1,6,1])
+    with center:
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-
-        existing_comments = st.session_state.comments.get(str(index), [])
-        for comment in existing_comments:
+        existing = st.session_state.comments.get(str(index), [])
+        for comment in existing:
             author = comment["author"]
-            text = comment.get("text", "")
-            when = comment.get("when", "")
+            text   = comment.get("text","")
+            when   = comment.get("when","")
             attachment = comment.get("attachment", None)
 
-            # If there’s an attachment, show a download button
+            # Render attachment preview + download
             if attachment:
-                file_path = os.path.join(UPLOADS_DIR, attachment)
-                try:
-                    with open(file_path, "rb") as f:
-                        file_bytes = f.read()
+                path = os.path.join(UPLOADS_DIR, attachment)
+                ext  = os.path.splitext(attachment)[1].lower()
 
+                if ext in (".png",".jpg",".jpeg"):
+                    st.image(path, caption=attachment, width=200)
+                elif ext == ".pdf":
+                    with pdfplumber.open(path) as pdf:
+                        page = pdf.pages[0]
+                        pil_img = page.to_image(resolution=150).original
+                    st.image(pil_img, caption=f"Preview: {attachment}", width=200)
+
+                # download button
+                try:
+                    with open(path, "rb") as f: data = f.read()
                     st.download_button(
-                        label=f"📎 {attachment}",
-                        data=file_bytes,
+                        label=f"📎 Download {attachment}",
+                        data=data,
                         file_name=attachment,
                         mime="application/octet-stream",
                         key=f"dl_{index}_{attachment}"
                     )
-
-                    if author == st.session_state.user_name:
-                        st.markdown(f'<div class="chat-author-out">{author}</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="chat-timestamp" style="text-align: right;">{when}</div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown(f'<div class="chat-author-in">{author}</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="chat-timestamp" style="text-align: left;">{when}</div>', unsafe_allow_html=True)
-
-                    st.markdown('<div class="clearfix"></div>', unsafe_allow_html=True)
-
                 except FileNotFoundError:
                     st.error(f"⚠️ Attachment not found: {attachment}")
 
+            # Render text bubble
             if text:
                 if author == st.session_state.user_name:
                     st.markdown(
                         f'<div class="chat-author-out">{author}</div>'
                         f'<div class="chat-bubble-out">{text}</div>'
-                        f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
-                        f'<div class="clearfix"></div>',
+                        f'<div class="chat-timestamp" style="text-align:right;">{when}</div>'
+                        '<div class="clearfix"></div>',
                         unsafe_allow_html=True
                     )
                 else:
                     st.markdown(
                         f'<div class="chat-author-in">{author}</div>'
                         f'<div class="chat-bubble-in">{text}</div>'
-                        f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
-                        f'<div class="clearfix"></div>',
+                        f'<div class="chat-timestamp" style="text-align:left;">{when}</div>'
+                        '<div class="clearfix"></div>',
                         unsafe_allow_html=True
                     )
 
-        # Close the “chat-container” wrapper
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # 3) INPUT ROW: text_input with ENTER‐to‐send + file_uploader + hidden “dummy” button
+        # Input row: ENTER-to-send + file uploader + dummy + upload button
         st.markdown("---")
-
         def _send_on_enter():
-            typed = st.session_state[text_input_key]
-            if typed.strip():
-                add_comment(
-                    index,
-                    st.session_state.user_name,
-                    typed.strip(),
-                    attachment=None
-                )
-                st.session_state[text_input_key] = ""
-                st.rerun()
+            key = f"new_msg_{index}"
+            msg = st.session_state[key]
+            if msg.strip():
+                add_comment(index, st.session_state.user_name, msg.strip(), attachment=None)
+                st.session_state[key] = ""
+                st.experimental_rerun()
 
-        text_input_key = f"new_msg_{index}"
-        new_message = st.text_input(
-            "Type your message here…",
-            key=text_input_key,
-            on_change=_send_on_enter,
-            placeholder="Press Enter to send text"
-        )
+        text_key = f"new_msg_{index}"
+        st.text_input("Type your message here…", key=text_key,
+                      placeholder="Press Enter to send text",
+                      on_change=_send_on_enter)
 
-        uploaded_file = st.file_uploader(
+        uploaded = st.file_uploader(
             "Attach a PDF, PNG or XLSX file (then press Enter to upload)",
-            type=["pdf", "png", "xlsx"],
-            key=f"fileuploader_{index}"
+            type=["pdf","png","xlsx"], key=f"fileuploader_{index}"
         )
+        st.button("", key=f"dummy_{index}")  # invisible dummy
 
-        # Hidden/invisible “dummy” button so ENTER‐to‐send continues to work after selecting a file
-        st.button("", key=f"dummy_{index}")
-
-        # “Upload File” button
         if st.button("Upload File", key=f"upload_file_{index}"):
-            if uploaded_file is not None:
-                timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
-                safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
-                save_path = os.path.join(UPLOADS_DIR, safe_filename)
-                with open(save_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-
-                add_comment(
-                    index,
-                    st.session_state.user_name,
-                    text="",
-                    attachment=safe_filename
-                )
-                st.success(f"Uploaded: {uploaded_file.name}")
-                st.rerun()
-
-    # End of “detail” page
-
+            if uploaded is not None:
+                ts = datetime.now().strftime("%Y%m%d%H%M%S")
+                fname = f"{index}_{ts}_{uploaded.name}"
+                save_path = os.path.join(UPLOADS_DIR, fname)
+                with open(save_path, "wb") as f: f.write(uploaded.getbuffer())
+                add_comment(index, st.session_state.user_name, text="", attachment=fname)
+                st.success(f"Uploaded: {uploaded.name}")
+                st.experimental_rerun()
+    # End of detail page
