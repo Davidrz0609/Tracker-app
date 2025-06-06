@@ -6,22 +6,21 @@ from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 
 # -------------------------------------------
-# ------- CONFIGURE PAGE + GLOBAL STATE -----
+# ------- APP CONFIG + STATE INITIALIZATION --
 # -------------------------------------------
 st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
 
-# Paths for persistence
 REQUESTS_FILE = "requests.json"
 COMMENTS_FILE = "comments.json"
 
-# Pre‐defined username/passwords (for demo purposes)
+# Example users (username: password). Replace or expand as needed.
 VALID_USERS = {
-    "andres": "1",
-    "marcela": "1",
-    "tito": "1"
+    "andres": "password123",
+    "marcela": "pwd456",
+    "tito": "secret789"
 }
 
-# Helper: Colored status badge
+# --- Helper: Colored Status Badge ---
 def format_status_badge(status):
     status = status.upper()
     color_map = {
@@ -45,7 +44,7 @@ def format_status_badge(status):
     ">{status}</span>
     """
 
-# Persistence helpers
+# --- Persistence Helpers ---
 def load_data():
     if os.path.exists(REQUESTS_FILE):
         with open(REQUESTS_FILE, "r") as f:
@@ -65,27 +64,28 @@ def save_data():
     with open(COMMENTS_FILE, "w") as f:
         json.dump(st.session_state.comments, f)
 
-# Add a request and initialize comments list for that request
 def add_request(data):
     index = len(st.session_state.requests)
     st.session_state.requests.append(data)
     st.session_state.comments[str(index)] = []
     save_data()
 
-# Add a comment under a specific request index, tagging with author
 def add_comment(index, author, text):
     key = str(index)
     if key not in st.session_state.comments:
         st.session_state.comments[key] = []
-    st.session_state.comments[key].append({"author": author, "text": text, "when": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    st.session_state.comments[key].append({
+        "author": author,
+        "text": text,
+        "when": datetime.now().strftime("%Y-%m-%d %H:%M")
+    })
     save_data()
 
-# Delete a request and reindex comments
 def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        # Re‐index comments dictionary so keys remain 0..N‐1
+        # Re-index comments so keys remain contiguous
         st.session_state.comments = {
             str(i): st.session_state.comments.get(str(i), [])
             for i in range(len(st.session_state.requests))
@@ -95,14 +95,11 @@ def delete_request(index):
         st.success("🗑️ Request deleted successfully.")
         go_to("requests")
 
-# Navigation helper
 def go_to(page):
     st.session_state.page = page
     st.rerun()
 
-# -------------------------------------------
-# ------- INITIALIZE session_state KEYS -----
-# -------------------------------------------
+# Initialize session state keys
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "user_name" not in st.session_state:
@@ -131,13 +128,15 @@ if not st.session_state.authenticated:
             st.rerun()
         else:
             st.error("❌ Invalid username or password.")
-    st.stop()  # Prevent anything else from rendering until logged in
+    st.stop()
 
 # -------------------------------------------
-# -------------- AUTHENTICATED  -------------
+# ------------- AUTHENTICATED ---------------
 # -------------------------------------------
 
-# Home Page
+# -------------------------------------------
+# ---------------- HOME PAGE ----------------
+# -------------------------------------------
 if st.session_state.page == "home":
     # Global styling
     st.markdown("""
@@ -155,12 +154,26 @@ if st.session_state.page == "home":
         top: 10px;
         right: 10px;
     }
+    div.stButton > button {
+        background-color: #ffffff !important;
+        border: 1px solid #ccc !important;
+        border-radius: 10px !important;
+        padding: 0.6rem 1.2rem !important;
+        font-weight: 600 !important;
+        font-size: 16px !important;
+        color: #333 !important;
+        transition: background-color 0.2s ease;
+    }
+    div.stButton > button:hover {
+        background-color: #f1f1f1 !important;
+        border-color: #999 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-    # Logout in the top‐right
+    # Logout button
     with st.container():
-        if st.button("🚪 Log Out", key="logout", help="Log out of your session"):
+        if st.button("🚪 Log Out", key="logout"):
             st.session_state.authenticated = False
             st.session_state.user_name = ""
             st.session_state.page = "login"
@@ -184,19 +197,18 @@ if st.session_state.page == "home":
         go_to("requests")
 
 # -------------------------------------------
-# ------- PURCHASE REQUEST PAGE -------------
+# -------------- PURCHASE PAGE  -------------
 # -------------------------------------------
 elif st.session_state.page == "purchase":
     st.markdown("## 💲 Purchase Request Form")
     st.markdown(f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)", unsafe_allow_html=True)
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Track dynamic item‐row count
     if "purchase_item_rows" not in st.session_state:
         st.session_state.purchase_item_rows = 1
     st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
 
-    # Styling
+    # Styling for inputs
     st.markdown("""
     <style>
     .stTextInput > div > div > input,
@@ -212,7 +224,6 @@ elif st.session_state.page == "purchase":
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
-        # Purchase Order# (PO) on left
         po_number = st.text_input(
             "Purchase Order#",
             value="",
@@ -227,11 +238,10 @@ elif st.session_state.page == "purchase":
             [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"]
         )
     with col2:
-        # Tracking# on right
         order_number = st.text_input(
             "Tracking# (optional)",
             value="",
-            placeholder="e.g. PO-2025-12345"
+            placeholder="e.g. TRK-45678"
         )
         proveedor = st.text_input(
             "Proveedor",
@@ -289,16 +299,16 @@ elif st.session_state.page == "purchase":
                     except ValueError:
                         cleaned_quantities.append(q)
 
-            if (not cleaned_descriptions
-                or not cleaned_quantities
-                or status.strip() == " "
-                or encargado.strip() == " "):
+            if (not cleaned_descriptions or
+                not cleaned_quantities or
+                status.strip() == " " or
+                encargado.strip() == " "):
                 st.error("❗ Please complete required fields: Status, Encargado, and at least one item.")
             else:
                 add_request({
                     "Type": "💲",
-                    "Order#": order_number,         # Tracking goes into Order#
-                    "Invoice": po_number,           # PO goes into Invoice
+                    "Order#": order_number,     # Tracking goes here
+                    "Invoice": po_number,       # PO goes here
                     "Date": str(order_date),
                     "Status": status,
                     "Shipping Method": shipping_method,
@@ -318,7 +328,7 @@ elif st.session_state.page == "purchase":
             go_to("home")
 
 # -------------------------------------------
-# -------- SALES ORDER REQUEST PAGE ---------
+# --------- SALES ORDER REQUEST PAGE --------
 # -------------------------------------------
 elif st.session_state.page == "sales_order":
     st.markdown("## 🛒 Sales Order Request Form")
@@ -375,8 +385,8 @@ elif st.session_state.page == "sales_order":
         if st.button("➕ Add another item", key="add_invoice"):
             st.session_state.invoice_item_rows += 1
     with col_remove:
-        if (st.session_state.invoice_item_rows > 1
-            and st.button("❌ Remove last item", key="remove_invoice")):
+        if (st.session_state.invoice_item_rows > 1 and
+            st.button("❌ Remove last item", key="remove_invoice")):
             st.session_state.invoice_item_rows -= 1
 
     st.markdown("### 🚚 Shipping Information")
@@ -401,16 +411,16 @@ elif st.session_state.page == "sales_order":
                     except ValueError:
                         cleaned_quantities.append(q)
 
-            if (not cleaned_descriptions
-                or not cleaned_quantities
-                or status.strip() == " "
-                or encargado.strip() == " "):
+            if (not cleaned_descriptions or
+                not cleaned_quantities or
+                status.strip() == " " or
+                encargado.strip() == " "):
                 st.error("❗ Please complete required fields: Status, Encargado, and at least one item.")
             else:
                 add_request({
                     "Type": "🛒",
-                    "Order#": order_number,             # Sales Order# goes into Order#
-                    "Invoice": sales_order_number,       # Tracking# goes into Invoice
+                    "Order#": order_number,             # Sales order#
+                    "Invoice": sales_order_number,       # Tracking
                     "Date": str(order_date),
                     "Status": status,
                     "Shipping Method": shipping_method,
@@ -436,11 +446,10 @@ elif st.session_state.page == "requests":
     st.markdown(f"## 📋 All Requests   |   Logged in as: **{st.session_state.user_name}**")
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Auto‐refresh
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
     load_data()
 
-    # Filters row
+    # Filters
     col1, col2, col3 = st.columns([3, 2, 2])
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests...")
@@ -455,7 +464,6 @@ elif st.session_state.page == "requests":
             ["All", "💲 Purchase", "🛒 Sales"]
         )
 
-    # Build filtered_requests list
     filtered_requests = []
     for req in st.session_state.requests:
         matches_search = search_term.lower() in json.dumps(req).lower()
@@ -464,7 +472,7 @@ elif st.session_state.page == "requests":
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
 
-    # Sort by ETA date
+    from datetime import datetime
     def parse_eta(req):
         eta_str = req.get("ETA Date", "")
         try:
@@ -480,15 +488,12 @@ elif st.session_state.page == "requests":
         for req in filtered_requests:
             flat_req = {}
             flat_req["Type"] = req.get("Type", "")
-
-            # Determine Order# vs Tracking Number
             if req.get("Type") == "💲":
                 flat_req["Order#"] = req.get("Invoice", "")
                 flat_req["Tracking Number"] = req.get("Order#", "")
             else:
                 flat_req["Order#"] = req.get("Order#", "")
                 flat_req["Tracking Number"] = req.get("Invoice", "")
-
             for k, v in req.items():
                 key_lower = k.lower()
                 if key_lower in ("order#", "invoice", "attachments", "statushistory", "comments", "commentshistory", "type"):
@@ -539,8 +544,6 @@ elif st.session_state.page == "requests":
             col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
 
         today = date.today()
-
-        # Table rows
         for i, req in enumerate(filtered_requests):
             with st.container():
                 cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
@@ -558,11 +561,11 @@ elif st.session_state.page == "requests":
                     and status_val not in ("READY", "CANCELLED")
                 )
 
-                # 1) Type icon
+                # 1) Type
                 type_icon = req.get("Type", "")
                 cols[0].markdown(f"<span class='type-icon'>{type_icon}</span>", unsafe_allow_html=True)
 
-                # 2) Ref# logic
+                # 2) Ref#
                 if req.get("Type") == "💲":
                     ref_val = req.get("Invoice", "")
                 else:
@@ -574,7 +577,7 @@ elif st.session_state.page == "requests":
                 desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
                 cols[2].write(desc_display)
 
-                # 4) Quantity
+                # 4) Qty
                 qty_list = req.get("Quantity", [])
                 if isinstance(qty_list, list):
                     qty_display = ", ".join(str(q) for q in qty_list)
@@ -612,7 +615,7 @@ elif st.session_state.page == "requests":
         go_to("home")
 
 # -------------------------------------------
-# -------- REQUEST DETAILS / COMMENTS -------
+# ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
@@ -792,45 +795,61 @@ elif st.session_state.page == "detail":
             go_to("requests")
 
     # ─────────────────────────────────────────────────────────────────────
-    #  COMMENTS SECTION (WhatsApp‐style bubbles)
+    #  COMMENTS SECTION (WhatsApp‐style bubbles with author names)
     # ─────────────────────────────────────────────────────────────────────
 
-    # 1) Inject CSS for chat bubbles
+    # 1) Inject CSS for chat bubbles + author labels
     st.markdown(
         """
         <style>
-        /* Incoming bubble (other users) */
+        /* Incoming author label */
+        .chat-author-in {
+            font-size: 12px;
+            color: #555;
+            margin-left: 5px;
+            margin-top: 8px;
+            clear: both;
+        }
+        /* Outgoing author label */
+        .chat-author-out {
+            font-size: 12px;
+            color: #34B7F1;
+            margin-right: 5px;
+            margin-top: 8px;
+            clear: both;
+            text-align: right;
+        }
+        /* Incoming bubble */
         .chat-bubble-in {
             background: #E5E5EA;
             color: #000;
             padding: 8px 12px;
             border-radius: 18px;
-            margin: 5px 0;
+            margin: 2px 0;
             max-width: 60%;
             float: left;
             clear: both;
         }
-        /* Outgoing bubble (logged‐in user) */
+        /* Outgoing bubble */
         .chat-bubble-out {
             background: #34B7F1;
             color: #FFF;
             padding: 8px 12px;
             border-radius: 18px;
-            margin: 5px 0;
+            margin: 2px 0;
             max-width: 60%;
             float: right;
             clear: both;
         }
-        /* Clear float after each bubble */
-        .clearfix {
-            clear: both;
-        }
-        /* Timestamp style under each bubble */
+        /* Timestamp below each bubble */
         .chat-timestamp {
             font-size: 10px;
             color: #888;
             margin-top: 2px;
             margin-bottom: 8px;
+        }
+        /* Clear floats */
+        .clearfix {
             clear: both;
         }
         </style>
@@ -838,7 +857,7 @@ elif st.session_state.page == "detail":
         unsafe_allow_html=True
     )
 
-    # 2) Render existing comments as bubbles
+    # 2) Render existing comments with author + bubble
     st.markdown("### 💬 Comments (Chat‐Style)")
     existing_comments = st.session_state.comments.get(str(index), [])
 
@@ -847,19 +866,20 @@ elif st.session_state.page == "detail":
         text = comment["text"]
         when = comment.get("when", "")  # e.g. "2025-06-06 17:12"
 
-        # Choose CSS class based on whether this comment belongs to the logged‐in user
         if author == st.session_state.user_name:
-            # Outgoing message
+            # Outgoing: show author name in blue on right, then blue bubble on right
             st.markdown(
+                f'<div class="chat-author-out">{author}</div>'
                 f'<div class="chat-bubble-out">{text}</div>'
                 f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
                 f'<div class="clearfix"></div>',
                 unsafe_allow_html=True
             )
         else:
-            # Incoming message
+            # Incoming: show author name in gray on left, then gray bubble on left
             st.markdown(
-                f'<div class="chat-bubble-in"><strong>{author}</strong>: {text}</div>'
+                f'<div class="chat-author-in">{author}</div>'
+                f'<div class="chat-bubble-in">{text}</div>'
                 f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
                 f'<div class="clearfix"></div>',
                 unsafe_allow_html=True
@@ -871,6 +891,7 @@ elif st.session_state.page == "detail":
     if st.button("Send", key=f"send_{index}"):
         if new_message.strip():
             add_comment(index, st.session_state.user_name, new_message.strip())
-            # Clear the input and refresh so the new bubble appears immediately
+            # Clear the input and rerun so the new message appears
             st.session_state[f"new_msg_{index}"] = ""
             st.rerun()
+
