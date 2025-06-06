@@ -675,7 +675,11 @@ elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
     #  "Request Details" PAGE (WhatsApp‐style, centered chat bubbles &
     #   file‐upload feature, ENTER‐to‐send, and true‐file downloads)
+    #   + auto-refresh comments every 1 second
     # ─────────────────────────────────────────────────────────────────────
+
+    # Auto-refresh the detail page every 1000 ms so comments update in real time
+    _ = st_autorefresh(interval=1000, limit=None, key=f"refresh_{st.session_state.selected_request}")
 
     st.markdown("## 📂 Request Details")
     st.markdown(
@@ -860,7 +864,7 @@ elif st.session_state.page == "detail":
         /* Container padding around the whole chat area */
         .chat-container {
             padding: 8px;
-            background: #FFFFFF;      /* white background behind chat bubbles */
+            background: #FFFFFF;
             border-radius: 8px;
         }
 
@@ -963,14 +967,13 @@ elif st.session_state.page == "detail":
             when = comment.get("when", "")
             attachment = comment.get("attachment", None)
 
-            # If there’s an attachment, show a download button (unstyled HTML)
+            # If there’s an attachment, show a download button
             if attachment:
                 file_path = os.path.join(UPLOADS_DIR, attachment)
                 try:
                     with open(file_path, "rb") as f:
                         file_bytes = f.read()
 
-                    # Real download button so user gets the raw file
                     st.download_button(
                         label=f"📎 {attachment}",
                         data=file_bytes,
@@ -979,7 +982,6 @@ elif st.session_state.page == "detail":
                         key=f"dl_{index}_{attachment}"
                     )
 
-                    # Author label + timestamp
                     if author == st.session_state.user_name:
                         st.markdown(f'<div class="chat-author-out">{author}</div>', unsafe_allow_html=True)
                         st.markdown(f'<div class="chat-timestamp" style="text-align: right;">{when}</div>', unsafe_allow_html=True)
@@ -987,16 +989,13 @@ elif st.session_state.page == "detail":
                         st.markdown(f'<div class="chat-author-in">{author}</div>', unsafe_allow_html=True)
                         st.markdown(f'<div class="chat-timestamp" style="text-align: left;">{when}</div>', unsafe_allow_html=True)
 
-                    # Clear floats
                     st.markdown('<div class="clearfix"></div>', unsafe_allow_html=True)
 
                 except FileNotFoundError:
                     st.error(f"⚠️ Attachment not found: {attachment}")
 
-            # Then render the text bubble (if any text exists)
             if text:
                 if author == st.session_state.user_name:
-                    # Outgoing text: right-aligned green bubble
                     st.markdown(
                         f'<div class="chat-author-out">{author}</div>'
                         f'<div class="chat-bubble-out">{text}</div>'
@@ -1005,7 +1004,6 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
                 else:
-                    # Incoming text: left-aligned gray bubble
                     st.markdown(
                         f'<div class="chat-author-in">{author}</div>'
                         f'<div class="chat-bubble-in">{text}</div>'
@@ -1065,6 +1063,10 @@ elif st.session_state.page == "detail":
                     attachment=safe_filename
                 )
                 st.success(f"Uploaded: {uploaded_file.name}")
+                st.rerun()
+
+    # End of “detail” page
+
                 st.rerun()
 
     # End of “detail” page  
