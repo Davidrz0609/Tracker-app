@@ -492,201 +492,127 @@ elif st.session_state.page == "sales_order":
 
 # --- All Requests Page ---
 elif st.session_state.page == "requests":
-    # --- Auto-refresh every 5 seconds ---
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
-
-    # --- Re-load data from disk so we see the latest requests ---
     load_data()
-
     st.header("📋 All Requests")
 
-    # --- Filters + Bulk Actions ---
-    col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
-    with col1:
-        search_term = st.text_input("Search", placeholder="Search requests...")
-    with col2:
-        status_filter = st.selectbox(
-            "Status",
-            ["All", "PENDING", "IN TRANSIT", "READY", "CANCELLED", "CONFIRMED", "INCOMPLETE"]
-        )
-    with col3:
-        type_filter = st.selectbox(
-            "Request type",
-            ["All", "💲 Purchase", "🛒 Sales"]
-        )
-    with col4:
-        # Toggle to show overdue first
-        if st.checkbox("Show Overdue First", key="overdue_toggle"):
-            show_overdue_first = True
-        else:
-            show_overdue_first = False
+    # Filters Row
+    f1, f2, f3, f4 = st.columns([3,2,2,2])
+    with f1: search_term = st.text_input("Search requests...", value="")
+    with f2: status_filter = st.selectbox("Status", ["All", "PENDING", "IN TRANSIT", "READY", "CANCELLED", "CONFIRMED", "INCOMPLETE"])
+    with f3: type_filter = st.selectbox("Request type", ["All", "💲 Purchase", "🛒 Sales"] )
+    with f4: show_overdue_first = st.checkbox("Show Overdue First", key="overdue_toggle")
 
-    # --- Filter Logic ---
-    filtered_requests = []
+    # Bulk Actions & Export Row
+    st.markdown("### Bulk Actions & Export")
+    ba1, ba2, ba3, ba4 = st.columns([1,1,2,2])
+    with ba1:
+        if st.button("Select All Overdue"): st.session_state.bulk_select = []  # reset
+        # Collect overdue indices
+        overdue_indices = []
+        today = date.today()
+        for i, req in enumerate(st.session_state.requests):
+            try:
+                eta = datetime.strptime(req.get("ETA Date", ""), "%Y-%m-%d").date()
+            except: eta = None
+            if eta and eta < today and req.get("Status"," ").upper() not in ("READY","CANCELLED"): overdue_indices.append(i)
+        if overdue_indices: st.session_state.bulk_select = overdue_indices
+    with ba2:
+        if st.button("Clear Selection"): st.session_state.bulk_select = []
+    with ba3:
+        new_bulk_status = st.selectbox("Set status for selected", [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"], key="bulk_status")
+        if st.button("Update Selected"):
+            count=0
+            for idx in st.session_state.bulk_select:
+                req = st.session_state.requests[idx]; old=req.get("Status"," ")
+                if new_bulk_status.strip() and new_bulk_status!=old:
+                    req["Status"]=new_bulk_status; req["StatusHistory"].append({"status":new_bulk_status,"when":datetime.now().strftime("%Y-%m-%d %H:%M")}); count+=1
+            if count: save_data(); st.success(f"✅ Updated {count} request(s)."); st.session_state.bulk_select=[]; st.rerun()
+    with ba4:
+        # Build DataFrame from filtered list
+        filtered_list = []
+        for i, req in enumerate(st.session_state.requests):
+            if (search_term.lower() in json.dumps(req).lower()) and ((status_filter=="All") or (req.get("Status"," ").upper()==status_filter)) and ((type_filter=="All") or (req.get("Type")==type_filter.split()[0])):
+                filtered_list.append((i,req))
+        export_rows=[]
+        for idx, req in filtered_list:
+            export_rows.append({
+                "Index": idx,
+                "Type": req.get("Type", ""),
+                "Ref#": req.get("Order#","") or req.get("Invoice",""),
+                "Description": ", ".join(req.get("Description",[])) if isinstance(req.get("Description",[]),list) else req.get("Description",""),
+                "Qty": ", ".join(str(x) for x in req.get("Quantity",[])) if isinstance(req.get("Quantity",[]),list) else req.get("Quantity",""),
+                "Status": req.get("Status",""),
+                "Ordered Date": req.get("Date",""),
+                "ETA Date": req.get("ETA Date",""),
+                "Encargado": req.get("Encargado","")
+            })
+        df_out = pd.DataFrame(export_rows)
+        csv = df_out.to_csv(index=False).encode('utf-8')
+        st.download_button(label="📥 Download CSV", data=csv, file_name="filtered_requests.csv", mime='text/csv')
+
+    # Table Header & Content
+    st.markdown("### Requests Table")
+    # Compute display_list with overdue flag
+    display_list=[]
     for idx, req in enumerate(st.session_state.requests):
-        matches_search = search_term.lower() in json.dumps(req).lower()
-        matches_status = (status_filter == "All") or (req.get("Status", "").upper() == status_filter)
-        matches_type = (
-            type_filter == "All"
-            or req.get("Type") == type_filter.split()[0]
-        )
-        if matches_search and matches_status and matches_type:
-            filtered_requests.append((idx, req))
-
-    # --- Compute Overdue Flag ---
-    today = date.today()
-    display_list = []
-    for idx, req in filtered_requests:
-        eta_str = req.get("ETA Date", "")
-        try:
-            eta_date = datetime.strptime(eta_str, "%Y-%m-%d").date()
-        except:
-            eta_date = None
-        status_val = req.get("Status", "").upper()
-        is_overdue = eta_date is not None and eta_date < today and status_val not in ("READY", "CANCELLED")
-        display_list.append((idx, req, is_overdue))
-
-    # --- Sort by Overdue if toggle, else by ETA date ---
+        if (search_term.lower() in json.dumps(req).lower()) and ((status_filter=="All") or (req.get("Status"," ").upper()==status_filter)) and ((type_filter=="All") or (req.get("Type")==type_filter.split()[0])):
+            try: eta=datetime.strptime(req.get("ETA Date",""), "%Y-%m-%d").date()
+            except: eta=None
+            is_over = eta and eta<today and req.get("Status"," ").upper() not in ("READY","CANCELLED")
+            display_list.append((idx, req, is_over))
+    # Sort
     if show_overdue_first:
         display_list.sort(key=lambda x: (not x[2], x[0]))
     else:
-        def parse_eta(req):
-            eta_str = req.get("ETA Date", "")
-            try:
-                return datetime.strptime(eta_str, "%Y-%m-%d").date()
-            except:
-                return date.max
-        display_list.sort(key=lambda x: parse_eta(x[1]))
+        display_list.sort(key=lambda x: (datetime.strptime(x[1].get("ETA Date","2100-01-01"),"%Y-%m-%d").date() if x[1].get("ETA Date","") else date.max))
 
-    # --- Bulk Status Update UI ---
-    st.markdown("### Bulk Actions")
-    col_b1, col_b2, col_b3 = st.columns([1, 1, 2])
-    with col_b1:
-        if st.button("Select All Overdue"):
-            st.session_state.bulk_select = [idx for idx, _, overdue in display_list if overdue]
-    with col_b2:
-        if st.button("Clear Selection"):
-            st.session_state.bulk_select = []
-    with col_b3:
-        new_bulk_status = st.selectbox("Set status for selected", [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"], key="bulk_status")
-        if st.button("Update Selected"):
-            count = 0
-            for idx in st.session_state.bulk_select:
-                req = st.session_state.requests[idx]
-                old_status = req.get("Status", "")
-                if new_bulk_status.strip() and new_bulk_status != old_status:
-                    req["Status"] = new_bulk_status
-                    # Append to history
-                    req["StatusHistory"].append({"status": new_bulk_status, "when": datetime.now().strftime("%Y-%m-%d %H:%M")})
-                    count += 1
-            if count:
-                save_data()
-                st.success(f"✅ Updated status for {count} request(s).")
-                st.session_state.bulk_select = []
-                st.rerun()
-
-    # --- Export Button ---
-    # Build DataFrame from filtered_requests
-    export_data = []
-    for idx, req, _ in display_list:
-        row = {
-            "Index": idx,
-            "Type": req.get("Type", ""),
-            "Ref#": req.get("Order#", "") or req.get("Invoice", ""),
-            "Description": ", ".join(req.get("Description", [])) if isinstance(req.get("Description", []), list) else req.get("Description", ""),
-            "Qty": ", ".join(str(x) for x in req.get("Quantity", [])) if isinstance(req.get("Quantity", []), list) else req.get("Quantity", ""),
-            "Status": req.get("Status", ""),
-            "Ordered Date": req.get("Date", ""),
-            "ETA Date": req.get("ETA Date", ""),
-            "Shipping Method": req.get("Shipping Method", ""),
-            "Encargado": req.get("Encargado", "")
-        }
-        export_data.append(row)
-    df_export = pd.DataFrame(export_data)
-    csv = df_export.to_csv(index=False).encode('utf-8')
-    st.download_button(label="📥 Download CSV", data=csv, file_name="filtered_requests.csv", mime='text/csv')
-
-    # --- Table Header Styling & Display ---
     if display_list:
         st.markdown("""
         <style>
-        .header-row {
-            font-weight: bold;
-            font-size: 18px;
-            padding: 0.5rem 0;
-        }
-        .overdue-icon {
-            color: #e74c3c;
-            font-weight: 600;
-            font-size: 14px;
-            margin-left: 6px;
-            vertical-align: middle;
-        }
-        .type-icon {
-            font-size: 18px;
-        }
+        .header-row { font-weight: bold; font-size: 18px; padding: 0.5rem 0; }
+        .overdue-icon { color: #e74c3c; font-weight: 600; font-size: 14px; margin-left: 6px; vertical-align: middle; }
+        .type-icon { font-size: 18px; }
         </style>
         """, unsafe_allow_html=True)
-
-        header_cols = st.columns([0.5, 1, 2, 1, 2, 2, 2, 2, 1, 1])
-        headers = ["Select", "Type", "Ref#", "Description", "Qty", "Status", "Ordered Date", "ETA Date", "Encargado", ""]
-        for col, header in zip(header_cols, headers):
-            col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
-
-        for idx, req, is_overdue in display_list:
-            cols = st.columns([0.5, 1, 2, 1, 2, 2, 2, 2, 1, 1])
-            # Bulk select checkbox
+        # Header Row
+        cols = st.columns([0.5, 1, 2, 1, 2, 2, 2, 1, 1])
+        headers = ["Select", "Type", "Ref#", "Description", "Qty", "Status", "ETA Date", "Encargado", ""]
+        for c,h in zip(cols, headers):
+            c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
+        # Data Rows
+        for idx, req, is_over in display_list:
+            c0,c1,c2,c3,c4,c5,c6,c7,c8 = st.columns([0.5,1,2,1,2,2,2,1,1])
             checked = idx in st.session_state.bulk_select
-            new_checked = cols[0].checkbox("", value=checked, key=f"select_{idx}")
-            if new_checked and idx not in st.session_state.bulk_select:
-                st.session_state.bulk_select.append(idx)
-            elif not new_checked and idx in st.session_state.bulk_select:
-                st.session_state.bulk_select.remove(idx)
-
-            # 1) Type icon
-            type_icon = req.get("Type", "")
-            cols[1].markdown(f"<span class='type-icon'>{type_icon}</span>", unsafe_allow_html=True)
-
-            # 2) Ref#
-            ref_val = req.get("Order#", "") or req.get("Invoice", "")
-            cols[2].write(ref_val)
-
-            # 3) Description
-            desc_list = req.get("Description", [])
-            desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
-            cols[3].write(desc_display)
-
-            # 4) Qty
-            qty_list = req.get("Quantity", [])
-            if isinstance(qty_list, list):
-                qty_display = ", ".join(str(q) for q in qty_list)
-            else:
-                qty_display = str(qty_list)
-            cols[4].write(qty_display)
-
-            # 5) Status + overdue icon
-            status_val = req.get("Status", "").upper()
-            status_html = format_status_badge(status_val)
-            if is_overdue:
-                status_html += "<abbr title='Overdue'><span class='overdue-icon'>⚠️</span></abbr>"
-            cols[5].markdown(status_html, unsafe_allow_html=True)
-
-            # 6) Ordered Date
-            cols[6].write(req.get("Date", ""))
-            # 7) ETA Date
-            cols[7].write(req.get("ETA Date", ""))
-            # 8) Encargado
-            cols[8].write(req.get("Encargado", ""))
-
-            # 9) View button
-            if cols[9].button("🔍", key=f"view_{idx}"):
-                st.session_state.selected_request = idx
-                go_to("detail")
+            new_check = c0.checkbox("", value=checked, key=f"select_{idx}")
+            if new_check and idx not in st.session_state.bulk_select: st.session_state.bulk_select.append(idx)
+            if not new_check and idx in st.session_state.bulk_select: st.session_state.bulk_select.remove(idx)
+            # Type icon
+            c1.markdown(f"<span class='type-icon'>{req.get('Type','')}</span>", unsafe_allow_html=True)
+            # Ref#
+            ref = req.get("Order#","") or req.get("Invoice","")
+            c2.write(ref)
+            # Description
+            desc = ", ".join(req.get("Description",[])) if isinstance(req.get("Description",[]),list) else req.get("Description","")
+            c3.write(desc)
+            # Qty
+            qty = ", ".join(str(x) for x in req.get("Quantity",[])) if isinstance(req.get("Quantity",[]),list) else req.get("Quantity","")
+            c4.write(qty)
+            # Status + overdue icon
+            stat = req.get("Status"," ").upper()
+            shml = format_status_badge(stat)
+            if is_over: shml += "<abbr title='Overdue'><span class='overdue-icon'>⚠️</span></abbr>"
+            c5.markdown(shml, unsafe_allow_html=True)
+            # ETA Date
+            c6.write(req.get("ETA Date",""))
+            # Encargado
+            c7.write(req.get("Encargado",""))
+            # View
+            if c8.button("🔍", key=f"view_{idx}"): st.session_state.selected_request=idx; go_to("detail")
     else:
         st.warning("No matching requests found.")
 
-    if st.button("⬅ Back to Home"):
-        go_to("home")
+    if st.button("⬅ Back to Home"): go_to("home")
 
 # --- Request Details Page ---
 elif st.session_state.page == "detail":
