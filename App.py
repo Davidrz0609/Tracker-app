@@ -645,7 +645,7 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
-    #  "Request Details" PAGE (WhatsApp‐style chat + file uploads)
+    #  "Request Details" PAGE (WhatsApp-style chat + auto-send on Enter + auto-file-upload)
     # ─────────────────────────────────────────────────────────────────────
 
     st.markdown("## 📂 Request Details")
@@ -821,10 +821,10 @@ elif st.session_state.page == "detail":
             go_to("requests")
 
     # ─────────────────────────────────────────────────────────────────────
-    #  COMMENTS SECTION (WhatsApp‐style, centered chat bubbles & file‐upload)
+    #  COMMENTS SECTION (WhatsApp-style, auto-send on Enter + auto-file-upload)
     # ─────────────────────────────────────────────────────────────────────
 
-    # 1) Inject CSS (narrower bubbles, WhatsApp green for outgoing)
+    # 1) Inject CSS (narrow bubbles, WhatsApp green for outgoing)
     st.markdown(
         """
         <style>
@@ -961,50 +961,56 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
 
-        # 3) Input row: text_input, file_uploader, and two buttons
+        # 3) Input row: single text_input + file_uploader + no buttons
         st.markdown("---")
-        text_input_key = f"new_msg_{index}"
-        new_message = st.text_input("Type your message here…", key=text_input_key)
 
-        # Only allow PDF, PNG, or XLSX:
+        # a) Text input that auto-submits on Enter
+        text_input_key = f"new_msg_{index}"
+        new_message = st.text_input(
+            "Type your message here and press Enter to send…",
+            value="",
+            key=text_input_key
+        )
+        if new_message.strip():
+            # Add comment immediately when Enter is pressed
+            add_comment(
+                index,
+                st.session_state.user_name,
+                new_message.strip(),
+                attachment=None
+            )
+            # Clear the text box so it’s empty again
+            st.session_state[text_input_key] = ""
+            st.experimental_rerun()  # trigger a rerun to display the new comment
+
+        # b) File uploader that auto-submits on selection
+        file_flag_key = f"file_processed_{index}"
+        # Ensure the flag exists for this request
+        if file_flag_key not in st.session_state:
+            st.session_state[file_flag_key] = False
+
         uploaded_file = st.file_uploader(
-            "Attach a PDF, PNG or XLSX file:",
+            "Attach a PDF, PNG or XLSX and it will send automatically:",
             type=["pdf", "png", "xlsx"],
             key=f"fileuploader_{index}"
         )
 
-        col_send, col_upload = st.columns([1, 1])
-        with col_send:
-            if st.button("Send Text", key=f"send_text_{index}"):
-                if new_message.strip():
-                    add_comment(
-                        index,
-                        st.session_state.user_name,
-                        new_message.strip(),
-                        attachment=None
-                    )
-                    # Clear the text box
-                    st.session_state[text_input_key] = ""
-                    st.rerun()
-
-        with col_upload:
-            # Process the file immediately once it is chosen and the button is clicked
-            if uploaded_file is not None and st.button("Upload File", key=f"upload_file_{index}"):
-                # Create a unique “safe” filename:
-                timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
-                safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
-                save_path = os.path.join(UPLOADS_DIR, safe_filename)
-                # Write the file’s bytes to disk:
-                with open(save_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                # Record this upload as a comment with no text, just an attachment
-                add_comment(
-                    index,
-                    st.session_state.user_name,
-                    text="",
-                    attachment=safe_filename
-                )
-                st.success(f"Uploaded: {uploaded_file.name}")
-                # Do NOT call st.rerun() here, to avoid the “value assignment not allowed” error
-
-
+        # As soon as a file is selected (uploaded_file is not None) and we haven't yet processed it,
+        # we write it to disk and record it as a comment. Then we set the flag so we don’t do it again.
+        if uploaded_file is not None and not st.session_state[file_flag_key]:
+            timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+            safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
+            save_path = os.path.join(UPLOADS_DIR, safe_filename)
+            # Save to disk
+            with open(save_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            # Record as a comment with only the attachment
+            add_comment(
+                index,
+                st.session_state.user_name,
+                text="",
+                attachment=safe_filename
+            )
+            st.session_state[file_flag_key] = True
+            st.success(f"Uploaded: {uploaded_file.name}")
+            st.experimental_rerun()  # rerun so the new attachment comment appears immediately
