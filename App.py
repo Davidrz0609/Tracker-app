@@ -2,8 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-import shutil
-from datetime import datetime, date
+from datetime import date
 import re
 from streamlit_autorefresh import st_autorefresh
 
@@ -13,11 +12,6 @@ st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_ic
 # --- File Paths ---
 REQUESTS_FILE = "requests.json"
 COMMENTS_FILE = "comments.json"
-ATTACHMENTS_DIR = "attachments"
-
-# Ensure attachments directory exists
-if not os.path.exists(ATTACHMENTS_DIR):
-    os.makedirs(ATTACHMENTS_DIR)
 
 # --- Helper: Colored Status Badge ---
 def format_status_badge(status):
@@ -32,13 +26,15 @@ def format_status_badge(status):
     }
     color = color_map.get(status, "#7f8c8d")  # Default: Gray
     return f"""
-    <span style="background-color: {color};
+    <span style="
+        background-color: {color};
         color: white;
         padding: 4px 10px;
         border-radius: 12px;
         font-size: 13px;
         font-weight: 600;
-        display: inline-block;">{status}</span>
+        display: inline-block;
+    ">{status}</span>
     """
 
 # --- Persistence ---
@@ -55,16 +51,6 @@ def load_data():
     else:
         st.session_state.comments = {}
 
-    # Ensure each request has StatusHistory and Attachments fields
-    for idx, req in enumerate(st.session_state.requests):
-        if "StatusHistory" not in req:
-            req["StatusHistory"] = [{"status": req.get("Status", ""), "when": req.get("Date", str(date.today()))}]
-        if "Attachments" not in req:
-            req["Attachments"] = []
-
-    save_data()  # Save additions if any were missing
-
-
 def save_data():
     with open(REQUESTS_FILE, "w") as f:
         json.dump(st.session_state.requests, f)
@@ -78,42 +64,26 @@ if "requests" not in st.session_state or "comments" not in st.session_state:
     load_data()
 if "selected_request" not in st.session_state:
     st.session_state.selected_request = None
-if "bulk_select" not in st.session_state:
-    st.session_state.bulk_select = []  # For bulk status update
-
 
 def go_to(page):
     st.session_state.page = page
     st.rerun()
 
-# When adding a new request, include StatusHistory and Attachments
-
 def add_request(data):
-    data["StatusHistory"] = [{"status": data.get("Status", ""), "when": str(datetime.now())}]
-    data["Attachments"] = []
     index = len(st.session_state.requests)
     st.session_state.requests.append(data)
     st.session_state.comments[str(index)] = []
     save_data()
 
-
 def add_comment(index, author, text):
     key = str(index)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    entry = {"author": author, "text": text, "when": timestamp}
     if key not in st.session_state.comments:
         st.session_state.comments[key] = []
-    st.session_state.comments[key].append(entry)
+    st.session_state.comments[key].append({"author": author, "text": text})
     save_data()
-
 
 def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
-        # Also delete any attachment files
-        for fname in st.session_state.requests[index].get("Attachments", []):
-            fpath = os.path.join(ATTACHMENTS_DIR, fname)
-            if os.path.exists(fpath):
-                os.remove(fpath)
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
         # Re-index comments
@@ -178,8 +148,9 @@ if st.session_state.page == "home":
         if st.button("📋 View All Requests", use_container_width=True):
             go_to("requests")
 
-# --- Purchase Request Form ---
 elif st.session_state.page == "purchase":
+    import pandas as pd
+
     st.markdown("## 💲 Purchase Request Form")
 
     # --- Global Styles ---
@@ -207,7 +178,8 @@ elif st.session_state.page == "purchase":
         st.session_state.purchase_item_rows = 1
     st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
 
-    # --- 1) Order Information ---
+    # ------------------------------------------------------------------
+    # --- 1) FORM FIELDS (manual input only) ---
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
@@ -240,7 +212,8 @@ elif st.session_state.page == "purchase":
             [" ", "Wire", "Cheque", "Credito", "Efectivo"]
         )
 
-    # --- 2) Items to Order ---
+    # ------------------------------------------------------------------
+    # --- 2) ITEM ROWS (dynamic manual input) ---
     st.markdown("### 🧾 Items to Order")
     descriptions = []
     quantities = []
@@ -262,7 +235,7 @@ elif st.session_state.page == "purchase":
             )
         )
 
-    # ───── Add/Remove Item Rows ─────
+    # ──────────── “Add/Remove” BUTTONS BELOW ITEMS ────────────
     col_add, col_remove = st.columns([1, 1])
     with col_add:
         if st.button("➕ Add another item", key="add_purchase"):
@@ -273,8 +246,10 @@ elif st.session_state.page == "purchase":
             and st.button("❌ Remove last item", key="remove_purchase")
         ):
             st.session_state.purchase_item_rows -= 1
+    # ──────────────────────────────────────────────────────────
 
-    # --- 3) Shipping Information ---
+    # ------------------------------------------------------------------
+    # --- 3) SHIPPING INFORMATION ---
     st.markdown("### 🚚 Shipping Information")
     col3, col4 = st.columns(2)
     with col3:
@@ -289,7 +264,8 @@ elif st.session_state.page == "purchase":
         [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"]
     )
 
-    # --- 4) Submit + Back ---
+    # ------------------------------------------------------------------
+    # --- 4) SUBMIT + BACK BUTTONS ---
     st.markdown("---")
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
@@ -334,8 +310,9 @@ elif st.session_state.page == "purchase":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
-# --- Sales Order Request Form ---
 elif st.session_state.page == "sales_order":
+    import pandas as pd
+
     st.markdown("## 🛒 Sales Order Request Form")
 
     # --- Global Styles ---
@@ -358,12 +335,14 @@ elif st.session_state.page == "sales_order":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Initialize session‐state containers ---
+    # ------------------------------------------------------------------
+    # Initialize session‐state containers if not already set
     if "invoice_item_rows" not in st.session_state:
         st.session_state.invoice_item_rows = 1
     st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
 
-    # --- 1) Order Information ---
+    # ------------------------------------------------------------------
+    # --- 1) FORM FIELDS (fully manual; no PDF upload) ---
     st.markdown("### 📄 Order Information")
     col1, col2 = st.columns(2)
     with col1:
@@ -396,7 +375,8 @@ elif st.session_state.page == "sales_order":
             [" ", "Wire", "Cheque", "Credito", "Efectivo"]
         )
 
-    # --- 2) Items to Invoice ---
+    # ------------------------------------------------------------------
+    # --- 2) ITEM ROWS (dynamic manual input) ---
     st.markdown("### 🧾 Items to Invoice")
     descriptions = []
     quantities = []
@@ -418,7 +398,7 @@ elif st.session_state.page == "sales_order":
             )
         )
 
-    # ───── Add/Remove Item Rows ─────
+    # ──────────── “Add/Remove” BUTTONS BELOW ITEMS ────────────
     col_add, col_remove = st.columns([1, 1])
     with col_add:
         if st.button("➕ Add another item", key="add_invoice"):
@@ -429,8 +409,10 @@ elif st.session_state.page == "sales_order":
             and st.button("❌ Remove last item", key="remove_invoice")
         ):
             st.session_state.invoice_item_rows -= 1
+    # ──────────────────────────────────────────────────────────
 
-    # --- 3) Shipping Information ---
+    # ------------------------------------------------------------------
+    # --- 3) SHIPPING INFORMATION ---
     st.markdown("### 🚚 Shipping Information")
     col3, col4 = st.columns(2)
     with col3:
@@ -445,7 +427,8 @@ elif st.session_state.page == "sales_order":
         [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"]
     )
 
-    # --- 4) Submit + Back ---
+    # ------------------------------------------------------------------
+    # --- 4) SUBMIT + BACK BUTTONS ---
     st.markdown("---")
     col_submit, col_back = st.columns([2, 1])
     with col_submit:
@@ -489,132 +472,161 @@ elif st.session_state.page == "sales_order":
     with col_back:
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
-
-# --- All Requests Page ---
 elif st.session_state.page == "requests":
+    # --- Auto-refresh every 5 seconds ---
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
+
+    # --- Re-load data from disk so we see the latest requests ---
     load_data()
+
     st.header("📋 All Requests")
 
-    # Filters Row
-    f1, f2, f3, f4 = st.columns([3,2,2,2])
-    with f1: search_term = st.text_input("Search requests...", value="")
-    with f2: status_filter = st.selectbox("Status", ["All", "PENDING", "IN TRANSIT", "READY", "CANCELLED", "CONFIRMED", "INCOMPLETE"])
-    with f3: type_filter = st.selectbox("Request type", ["All", "💲 Purchase", "🛒 Sales"] )
-    with f4: show_overdue_first = st.checkbox("Show Overdue First", key="overdue_toggle")
+    # --- Filters ---
+    col1, col2, col3 = st.columns([3, 2, 2])
+    with col1:
+        search_term = st.text_input("Search", placeholder="Search requests...")
+    with col2:
+        status_filter = st.selectbox(
+            "Status",
+            ["All", "PENDING", "IN TRANSIT", "READY", "CANCELLED", "CONFIRMED", "INCOMPLETE"]
+        )
+    with col3:
+        type_filter = st.selectbox(
+            "Request type",
+            ["All", "💲 Purchase", "🛒 Sales"]
+        )
 
-    # Bulk Actions & Export Row
-    st.markdown("### Bulk Actions & Export")
-    ba1, ba2, ba3, ba4 = st.columns([1,1,2,2])
-    with ba1:
-        if st.button("Select All Overdue"): st.session_state.bulk_select = []  # reset
-        # Collect overdue indices
-        overdue_indices = []
-        today = date.today()
-        for i, req in enumerate(st.session_state.requests):
-            try:
-                eta = datetime.strptime(req.get("ETA Date", ""), "%Y-%m-%d").date()
-            except: eta = None
-            if eta and eta < today and req.get("Status"," ").upper() not in ("READY","CANCELLED"): overdue_indices.append(i)
-        if overdue_indices: st.session_state.bulk_select = overdue_indices
-    with ba2:
-        if st.button("Clear Selection"): st.session_state.bulk_select = []
-    with ba3:
-        new_bulk_status = st.selectbox("Set status for selected", [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"], key="bulk_status")
-        if st.button("Update Selected"):
-            count=0
-            for idx in st.session_state.bulk_select:
-                req = st.session_state.requests[idx]; old=req.get("Status"," ")
-                if new_bulk_status.strip() and new_bulk_status!=old:
-                    req["Status"]=new_bulk_status; req["StatusHistory"].append({"status":new_bulk_status,"when":datetime.now().strftime("%Y-%m-%d %H:%M")}); count+=1
-            if count: save_data(); st.success(f"✅ Updated {count} request(s)."); st.session_state.bulk_select=[]; st.rerun()
-    with ba4:
-        # Build DataFrame from filtered list
-        filtered_list = []
-        for i, req in enumerate(st.session_state.requests):
-            if (search_term.lower() in json.dumps(req).lower()) and ((status_filter=="All") or (req.get("Status"," ").upper()==status_filter)) and ((type_filter=="All") or (req.get("Type")==type_filter.split()[0])):
-                filtered_list.append((i,req))
-        export_rows=[]
-        for idx, req in filtered_list:
-            export_rows.append({
-                "Index": idx,
-                "Type": req.get("Type", ""),
-                "Ref#": req.get("Order#","") or req.get("Invoice",""),
-                "Description": ", ".join(req.get("Description",[])) if isinstance(req.get("Description",[]),list) else req.get("Description",""),
-                "Qty": ", ".join(str(x) for x in req.get("Quantity",[])) if isinstance(req.get("Quantity",[]),list) else req.get("Quantity",""),
-                "Status": req.get("Status",""),
-                "Ordered Date": req.get("Date",""),
-                "ETA Date": req.get("ETA Date",""),
-                "Encargado": req.get("Encargado","")
-            })
-        df_out = pd.DataFrame(export_rows)
-        csv = df_out.to_csv(index=False).encode('utf-8')
-        st.download_button(label="📥 Download CSV", data=csv, file_name="filtered_requests.csv", mime='text/csv')
+    # --- Filter Logic ---
+    filtered_requests = []
+    for req in st.session_state.requests:
+        matches_search = search_term.lower() in json.dumps(req).lower()
+        matches_status = (status_filter == "All") or (req.get("Status", "").upper() == status_filter)
+        matches_type = (
+            type_filter == "All"
+            or req.get("Type") == type_filter.split()[0]
+        )
+        if matches_search and matches_status and matches_type:
+            filtered_requests.append(req)
 
-    # Table Header & Content
-    st.markdown("### Requests Table")
-    # Compute display_list with overdue flag
-    display_list=[]
-    for idx, req in enumerate(st.session_state.requests):
-        if (search_term.lower() in json.dumps(req).lower()) and ((status_filter=="All") or (req.get("Status"," ").upper()==status_filter)) and ((type_filter=="All") or (req.get("Type")==type_filter.split()[0])):
-            try: eta=datetime.strptime(req.get("ETA Date",""), "%Y-%m-%d").date()
-            except: eta=None
-            is_over = eta and eta<today and req.get("Status"," ").upper() not in ("READY","CANCELLED")
-            display_list.append((idx, req, is_over))
-    # Sort
-    if show_overdue_first:
-        display_list.sort(key=lambda x: (not x[2], x[0]))
-    else:
-        display_list.sort(key=lambda x: (datetime.strptime(x[1].get("ETA Date","2100-01-01"),"%Y-%m-%d").date() if x[1].get("ETA Date","") else date.max))
+    # --- Sort by soonest ETA date (earliest first) ---
+    from datetime import datetime, date
 
-    if display_list:
+    def parse_eta(req):
+        eta_str = req.get("ETA Date", "")
+        try:
+            return datetime.strptime(eta_str, "%Y-%m-%d").date()
+        except:
+            return date.max
+
+    filtered_requests = sorted(filtered_requests, key=parse_eta)
+
+    if filtered_requests:
+        # --- Table Header Styling (make headers larger) ---
         st.markdown("""
         <style>
-        .header-row { font-weight: bold; font-size: 18px; padding: 0.5rem 0; }
-        .overdue-icon { color: #e74c3c; font-weight: 600; font-size: 14px; margin-left: 6px; vertical-align: middle; }
-        .type-icon { font-size: 18px; }
+        .header-row {
+            font-weight: bold;
+            font-size: 18px;
+            padding: 0.5rem 0;
+        }
+        .overdue-icon {
+            color: #e74c3c;
+            font-weight: 600;
+            font-size: 14px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        .type-icon {
+            font-size: 18px;
+        }
         </style>
         """, unsafe_allow_html=True)
-        # Header Row
-        cols = st.columns([0.5, 1, 2, 1, 2, 2, 2, 1, 1])
-        headers = ["Select", "Type", "Ref#", "Description", "Qty", "Status", "ETA Date", "Encargado", ""]
-        for c,h in zip(cols, headers):
-            c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
-        # Data Rows
-        for idx, req, is_over in display_list:
-            c0,c1,c2,c3,c4,c5,c6,c7,c8 = st.columns([0.5,1,2,1,2,2,2,1,1])
-            checked = idx in st.session_state.bulk_select
-            new_check = c0.checkbox("", value=checked, key=f"select_{idx}")
-            if new_check and idx not in st.session_state.bulk_select: st.session_state.bulk_select.append(idx)
-            if not new_check and idx in st.session_state.bulk_select: st.session_state.bulk_select.remove(idx)
-            # Type icon
-            c1.markdown(f"<span class='type-icon'>{req.get('Type','')}</span>", unsafe_allow_html=True)
-            # Ref#
-            ref = req.get("Order#","") or req.get("Invoice","")
-            c2.write(ref)
-            # Description
-            desc = ", ".join(req.get("Description",[])) if isinstance(req.get("Description",[]),list) else req.get("Description","")
-            c3.write(desc)
-            # Qty
-            qty = ", ".join(str(x) for x in req.get("Quantity",[])) if isinstance(req.get("Quantity",[]),list) else req.get("Quantity","")
-            c4.write(qty)
-            # Status + overdue icon
-            stat = req.get("Status"," ").upper()
-            shml = format_status_badge(stat)
-            if is_over: shml += "<abbr title='Overdue'><span class='overdue-icon'>⚠️</span></abbr>"
-            c5.markdown(shml, unsafe_allow_html=True)
-            # ETA Date
-            c6.write(req.get("ETA Date",""))
-            # Encargado
-            c7.write(req.get("Encargado",""))
-            # View
-            if c8.button("🔍", key=f"view_{idx}"): st.session_state.selected_request=idx; go_to("detail")
+
+        # --- Table Header ---
+        header_cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
+        headers = [
+            "Type", "Ref#", "Description", "Qty", "Status",
+            "Ordered Date", "ETA Date", "Shipping Method", "Encargado", ""
+        ]
+        for col, header in zip(header_cols, headers):
+            col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
+
+        # --- Today’s date for comparison ---
+        today = date.today()
+
+        # --- Table Rows ---
+        for i, req in enumerate(filtered_requests):
+            with st.container():
+                cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
+
+                # --- Determine if this row is overdue (only if not READY or CANCELLED) ---
+                status_val = req.get("Status", "").upper()
+                eta_str = req.get("ETA Date", "")
+                try:
+                    eta_date = datetime.strptime(eta_str, "%Y-%m-%d").date()
+                except:
+                    eta_date = None
+
+                is_overdue = (
+                    eta_date is not None
+                    and eta_date < today
+                    and status_val not in ("READY", "CANCELLED")
+                )
+
+                # 1) Type (icon)
+                type_icon = req.get("Type", "")
+                cols[0].markdown(
+                    f"<span class='type-icon'>{type_icon}</span>",
+                    unsafe_allow_html=True
+                )
+
+                # 2) Ref#: prefer "Order#", but fall back to "Invoice"
+                ref_val = req.get("Order#", "") or req.get("Invoice", "")
+                cols[1].write(ref_val)
+
+                # 3) Description (join list if needed)
+                desc_list = req.get("Description", [])
+                desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
+                cols[2].write(desc_display)
+
+                # 4) Quantity (join list if needed)
+                qty_list = req.get("Quantity", [])
+                if isinstance(qty_list, list):
+                    qty_display = ", ".join(str(q) for q in qty_list)
+                else:
+                    qty_display = str(qty_list)
+                cols[3].write(qty_display)
+
+                # 5) Status column: show status badge, then possibly overdue icon to the right with tooltip
+                status_html = format_status_badge(status_val)
+                if is_overdue:
+                    status_html += "<abbr title='Overdue'><span class='overdue-icon'>⚠️</span></abbr>"
+                cols[4].markdown(status_html, unsafe_allow_html=True)
+
+                # 6) Ordered Date
+                cols[5].write(req.get("Date", ""))
+
+                # 7) ETA Date
+                cols[6].write(eta_str)
+
+                # 8) Shipping Method
+                cols[7].write(req.get("Shipping Method", ""))
+
+                # 9) Encargado
+                cols[8].write(req.get("Encargado", ""))
+
+                # 10) “View” button → go to detail
+                if cols[9].button("🔍", key=f"view_{i}"):
+                    full_index = st.session_state.requests.index(req)
+                    st.session_state.selected_request = full_index
+                    go_to("detail")
     else:
         st.warning("No matching requests found.")
 
-    if st.button("⬅ Back to Home"): go_to("home")
+    if st.button("⬅ Back to Home"):
+        go_to("home")
 
-# --- Request Details Page ---
+
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
     index = st.session_state.selected_request
@@ -630,7 +642,7 @@ elif st.session_state.page == "detail":
         font-weight: 600;
     }
     .stTextInput > div > div > input,
-    .stSelectbox > div, .stDateInput > div > input, .stFileUploader > div {
+    .stSelectbox > div, .stDateInput > div, .stTextArea > div > textarea {
         background-color: #f7f9fc !important;
         border-radius: 8px !important;
         padding: 0.4rem !important;
@@ -639,11 +651,11 @@ elif st.session_state.page == "detail":
     </style>
     """, unsafe_allow_html=True)
 
-    if index is not None and 0 <= index < len(st.session_state.requests):
+    if index is not None and index < len(st.session_state.requests):
         request = st.session_state.requests[index]
         updated_fields = {}
 
-        # Purchase vs Sales flag
+        # Determine if this is a Purchase (💲) or Sales (🛒) order
         is_purchase = (request.get("Type") == "💲")
         is_sales = (request.get("Type") == "🛒")
 
@@ -653,17 +665,17 @@ elif st.session_state.page == "detail":
             col1, col2 = st.columns(2)
 
             with col1:
-                # Ref#/Order#
+                # Ref# / Order#
                 order_number_val = request.get("Order#", "")
                 order_number = st.text_input(
-                    "Ref# / Tracking#",
+                    "Ref#",
                     value=order_number_val,
                     key="detail_Order#"
                 )
                 if order_number != order_number_val:
                     updated_fields["Order#"] = order_number
 
-                # Items list
+                # Dynamic rows for Description & Quantity
                 desc_list = request.get("Description", [])
                 qty_list = request.get("Quantity", [])
                 num_rows = max(len(desc_list), len(qty_list), 1)
@@ -702,19 +714,27 @@ elif st.session_state.page == "detail":
                 current_status = request.get("Status", " ")
                 if current_status not in status_options:
                     current_status = " "
-                status_val = st.selectbox(
+                status = st.selectbox(
                     "Status",
                     status_options,
                     index=status_options.index(current_status),
                     key="detail_Status"
                 )
-                if status_val != current_status:
-                    updated_fields["Status"] = status_val
-                    # Append to status history
-                    request["StatusHistory"].append({"status": status_val, "when": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                if status != current_status:
+                    updated_fields["Status"] = status
 
             with col2:
-                # Partner (Proveedor or Cliente)
+                # Tracking# / Invoice
+                invoice_val = request.get("Invoice", "")
+                invoice = st.text_input(
+                    "Tracking#",
+                    value=invoice_val,
+                    key="detail_Invoice"
+                )
+                if invoice != invoice_val:
+                    updated_fields["Invoice"] = invoice
+
+                # Proveedor vs Cliente
                 partner_label = "Proveedor" if is_purchase else "Cliente"
                 partner_val = request.get(partner_label, "")
                 partner = st.text_input(
@@ -725,7 +745,7 @@ elif st.session_state.page == "detail":
                 if partner != partner_val:
                     updated_fields[partner_label] = partner
 
-                # Payment
+                # Método de Pago
                 pago_val = request.get("Pago", " ")
                 pago = st.selectbox(
                     "Método de Pago",
@@ -780,28 +800,7 @@ elif st.session_state.page == "detail":
             if shipping_method != ship_val:
                 updated_fields["Shipping Method"] = shipping_method
 
-        # --- 3) Attachments ---
-        st.markdown("### 📎 Attachments")
-        existing = request.get("Attachments", [])
-        for fname in existing:
-            path = os.path.join(ATTACHMENTS_DIR, fname)
-            if os.path.exists(path):
-                st.markdown(f"- [{fname}](attachments/{fname})")
-        new_file = st.file_uploader("Upload a file", key="upload_attachment")
-        if new_file is not None:
-            save_path = os.path.join(ATTACHMENTS_DIR, new_file.name)
-            with open(save_path, "wb") as f:
-                f.write(new_file.getbuffer())
-            request["Attachments"].append(new_file.name)
-            save_data()
-            st.success(f"Uploaded {new_file.name}")
-
-        # --- 4) Status History ---
-        st.markdown("### 🕘 Status History")
-        for hist in request.get("StatusHistory", []):
-            st.markdown(f"- `{hist['when']}`: {hist['status']}")
-
-        # --- 5) Save, Delete, Back ---
+        # --- 3) Save, Delete, Back ---
         st.markdown("---")
         col_save, col_delete, col_back = st.columns([2, 1, 1])
         with col_save:
@@ -820,10 +819,10 @@ elif st.session_state.page == "detail":
             if st.button("⬅ Back to All Requests", use_container_width=True):
                 go_to("requests")
 
-        # --- 6) Comments Section ---
+        # --- 4) Comments Section ---
         st.markdown("### 💬 Comments")
         for comment in st.session_state.comments.get(str(index), []):
-            st.markdown(f"**{comment['author']}** ({comment['when']}): {comment['text']}")
+            st.markdown(f"**{comment['author']}**: {comment['text']}")
 
         new_comment = st.text_area("Add a comment", key="detail_NewComment")
         if st.button("Submit Comment"):
@@ -831,6 +830,7 @@ elif st.session_state.page == "detail":
                 add_comment(index, "User", new_comment.strip())
                 st.success("✅ Comment added.")
                 st.rerun()
+
     else:
         st.error("Invalid request selected.")
 
