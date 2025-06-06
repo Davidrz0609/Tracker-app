@@ -475,7 +475,7 @@ elif st.session_state.page == "sales_order":
 
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 5 seconds ---
-    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
+    _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
 
     # --- Re-load data from disk so we see the latest requests ---
     load_data()
@@ -484,16 +484,13 @@ elif st.session_state.page == "requests":
 
     # --- Filters ---
     col1, col2, col3 = st.columns([3, 2, 2])
-
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests...")
-
     with col2:
         status_filter = st.selectbox(
             "Status",
             ["All", "PENDING", "IN TRANSIT", "READY", "CANCELLED", "CONFIRMED", "INCOMPLETE"]
         )
-
     with col3:
         type_filter = st.selectbox(
             "Request type",
@@ -513,27 +510,39 @@ elif st.session_state.page == "requests":
             filtered_requests.append(req)
 
     # --- Sort by soonest ETA date (earliest first) ---
-    from datetime import datetime
+    from datetime import datetime, date
 
-    def parse_eta(req):
-        eta_str = req.get("ETA Date", "")
+    def parse_eta_date(value):
+        """
+        Try to coerce value into a date object:
+         - If already a date or datetime, convert to date.
+         - If a string of the form "YYYY-MM-DD", strip whitespace and parse.
+         - Otherwise return None.
+        """
+        if isinstance(value, date):
+            return value
+        if isinstance(value, datetime):
+            return value.date()
         try:
-            # Expecting "YYYY-MM-DD" format
-            return datetime.strptime(eta_str, "%Y-%m-%d")
-        except:
-            # If parsing fails or empty, push it to the end
-            return datetime.max
+            return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
+        except Exception:
+            return None
 
-    filtered_requests = sorted(filtered_requests, key=parse_eta)
+    filtered_requests.sort(key=lambda r: parse_eta_date(r.get("ETA Date", "")) or date.max)
 
     if filtered_requests:
-        # --- Table Header Styling (make headers larger) ---
+        # --- Custom CSS for headers and overdue text ---
         st.markdown("""
         <style>
         .header-row {
             font-weight: bold;
-            font-size: 18px;        /* increased font size */
+            font-size: 18px;
             padding: 0.5rem 0;
+        }
+        .overdue-text {
+            color: #e74c3c;
+            font-weight: 600;
+            font-size: 13px;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -544,8 +553,11 @@ elif st.session_state.page == "requests":
             "Type", "Ref#", "Description", "Qty", "Status",
             "Ordered Date", "ETA Date", "Shipping Method", "Encargado", ""
         ]
-        for col, header in zip(header_cols, headers):
-            col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
+        for col, title in zip(header_cols, headers):
+            col.markdown(f"<div class='header-row'>{title}</div>", unsafe_allow_html=True)
+
+        # --- Today’s date for comparison ---
+        today = date.today()
 
         # --- Table Rows ---
         for i, req in enumerate(filtered_requests):
@@ -560,26 +572,35 @@ elif st.session_state.page == "requests":
                 cols[1].write(ref_val)
 
                 # 3) Description (join list if needed)
-                desc_list = req.get("Description", [])
-                desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
+                desc = req.get("Description", [])
+                desc_display = ", ".join(desc) if isinstance(desc, list) else str(desc)
                 cols[2].write(desc_display)
 
                 # 4) Quantity (join list if needed)
-                qty_list = req.get("Quantity", [])
-                qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list := req.get("Quantity", []), list) else str(qty_list)
+                qty = req.get("Quantity", [])
+                if isinstance(qty, list):
+                    qty_display = ", ".join(str(x) for x in qty)
+                else:
+                    qty_display = str(qty)
                 cols[3].write(qty_display)
 
-                # 5) Status badge
-                cols[4].markdown(
-                    format_status_badge(req.get("Status", "")),
-                    unsafe_allow_html=True
-                )
+                # 5) Status badge + possibly “Overdue” below it
+                status_val = req.get("Status", "").upper()
+                status_html = format_status_badge(status_val)
+
+                raw_eta = req.get("ETA Date", "")
+                eta_date = parse_eta_date(raw_eta)
+
+                if eta_date is not None and eta_date < today and status_val != "READY":
+                    status_html += "<div class='overdue-text'>⚠️ Overdue</div>"
+
+                cols[4].markdown(status_html, unsafe_allow_html=True)
 
                 # 6) Ordered Date
                 cols[5].write(req.get("Date", ""))
 
                 # 7) ETA Date
-                cols[6].write(req.get("ETA Date", ""))
+                cols[6].write(raw_eta)
 
                 # 8) Shipping Method
                 cols[7].write(req.get("Shipping Method", ""))
@@ -597,6 +618,7 @@ elif st.session_state.page == "requests":
 
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 
 elif st.session_state.page == "detail":
