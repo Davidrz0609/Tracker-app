@@ -26,7 +26,13 @@ if not os.path.exists(UPLOADS_DIR):
 VALID_USERS = {
     "andres": "2002",
     "marcela": "2002",
-    "tito": "2002"
+    "tito": "2002",
+    "caro": "2002",
+    "john": "2002",
+    "thea": "2002",
+    "luz": "2002",
+    "david": "2002",
+    "caro": "2002"
 }
 
 # --- Helper: Colored Status Badge ---
@@ -247,7 +253,7 @@ if st.session_state.page == "home":
 elif st.session_state.page == "purchase":
     st.markdown("## 💲 Purchase Request Form")
     st.markdown(
-        f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)",
+        f"Logged in as: **{st.session_state.user_name}**",
         unsafe_allow_html=True
     )
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -381,7 +387,7 @@ elif st.session_state.page == "purchase":
 elif st.session_state.page == "sales_order":
     st.markdown("## 🛒 Sales Order Request Form")
     st.markdown(
-        f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)",
+        f"Logged in as: **{st.session_state.user_name}**",
         unsafe_allow_html=True
     )
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -673,21 +679,24 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
-    #  "Request Details" PAGE (WhatsApp‐style, centered chat bubbles &
-    #   file‐upload feature, ENTER‐to‐send, and true‐file downloads)
-    #   + auto-refresh comments every 1 second
+    #  “Request Details” PAGE (WhatsApp‐style chat + auto-refresh)
+    #  + auto-refresh comments every 1 second
     # ─────────────────────────────────────────────────────────────────────
 
-    # Auto-refresh the detail page every 1000 ms so comments update in real time
+    # 1) Auto-refresh triggers a full rerun every second
     _ = st_autorefresh(interval=1000, limit=None, key=f"refresh_{st.session_state.selected_request}")
+
+    # 2) Reload from disk so we pick up comments (and requests) from all users
+    load_data()
 
     st.markdown("## 📂 Request Details")
     st.markdown(
-        f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to All Requests](#)",
+        f"Logged in as: **{st.session_state.user_name}**",
         unsafe_allow_html=True
     )
     st.markdown("<hr>", unsafe_allow_html=True)
 
+    # Validate selected request index
     index = st.session_state.selected_request
     if index is None or index >= len(st.session_state.requests):
         st.error("Invalid request selected.")
@@ -1028,7 +1037,7 @@ elif st.session_state.page == "detail":
                     attachment=None
                 )
                 st.session_state[text_input_key] = ""
-                # Streamlit reruns automatically after this callback.
+                st.rerun()
 
         text_input_key = f"new_msg_{index}"
         new_message = st.text_input(
@@ -1044,10 +1053,10 @@ elif st.session_state.page == "detail":
             key=f"fileuploader_{index}"
         )
 
-        # Hidden/invisible “dummy” button so ENTER‐to‐send continues to work after you click a file
+        # Hidden/invisible “dummy” button so ENTER‐to‐send continues to work after selecting a file
         st.button("", key=f"dummy_{index}")
 
-        # “Upload File” button (keeps exactly the same logic if you still want it)
+        # “Upload File” button
         if st.button("Upload File", key=f"upload_file_{index}"):
             if uploaded_file is not None:
                 timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -1067,6 +1076,3 @@ elif st.session_state.page == "detail":
 
     # End of “detail” page
 
-                st.rerun()
-
-    # End of “detail” page  
