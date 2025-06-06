@@ -645,8 +645,8 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
-    #  "Request Details" PAGE (WhatsApp‐style, centered chat bubbles &
-    #   file‐upload feature, ENTER‐to‐send, and true‐file downloads)
+    #  "Request Details" PAGE (with WhatsApp-style, centered chat bubbles &
+    #   file-upload feature, ENTER-to-send, and true-file downloads)
     # ─────────────────────────────────────────────────────────────────────
 
     st.markdown("## 📂 Request Details")
@@ -822,8 +822,7 @@ elif st.session_state.page == "detail":
             go_to("requests")
 
     # ─────────────────────────────────────────────────────────────────────
-    #  COMMENTS SECTION (WhatsApp‐style, centered chat bubbles & file‐upload)
-    #  + ENTER‐to‐send + true file downloads
+    #  COMMENTS SECTION (WhatsApp-style, ENTER-to-send for both text & file)
     # ─────────────────────────────────────────────────────────────────────
 
     # 1) Inject CSS (narrower bubbles, WhatsApp green for outgoing)
@@ -905,7 +904,7 @@ elif st.session_state.page == "detail":
     )
 
     # 2) Render chat inside a centered column
-    st.markdown("### 💬 Comments (Chat‐Style)")
+    st.markdown("### 💬 Comments (Chat-Style)")
     col_l, col_center, col_r = st.columns([1, 6, 1])
     with col_center:
         existing_comments = st.session_state.comments.get(str(index), [])
@@ -953,7 +952,7 @@ elif st.session_state.page == "detail":
             # Then render the text bubble (if any text exists)
             if text:
                 if author == st.session_state.user_name:
-                    # Outgoing text: right‐aligned green bubble
+                    # Outgoing text: right-aligned green bubble
                     st.markdown(
                         f'<div class="chat-author-out">{author}</div>'
                         f'<div class="chat-bubble-out">{text}</div>'
@@ -962,7 +961,7 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
                 else:
-                    # Incoming text: left‐aligned gray bubble
+                    # Incoming text: left-aligned gray bubble
                     st.markdown(
                         f'<div class="chat-author-in">{author}</div>'
                         f'<div class="chat-bubble-in">{text}</div>'
@@ -971,45 +970,24 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
 
-        # 3) INPUT ROW: text_input with ENTER‐to‐send + file_uploader + hidden “dummy” button
+        # 3) INPUT ROW: single text_input w/ ENTER handling for both text & file
         st.markdown("---")
 
-        def _send_on_enter():
-            typed = st.session_state[text_input_key]
-            if typed.strip():
-                add_comment(
-                    index,
-                    st.session_state.user_name,
-                    typed.strip(),
-                    attachment=None
-                )
-                st.session_state[text_input_key] = ""
-                # No st.rerun() here—Streamlit reruns automatically after callback.
+        def _handle_enter():
+            """
+            Called whenever the user presses Enter in the text_input.
+            If there’s a selected file, upload it; otherwise send text.
+            """
+            file_obj = st.session_state.get(file_key)
+            typed_text = st.session_state.get(text_key, "").strip()
 
-        text_input_key = f"new_msg_{index}"
-        new_message = st.text_input(
-            "Type your message here…",
-            key=text_input_key,
-            on_change=_send_on_enter
-        )
-
-        uploaded_file = st.file_uploader(
-            "Attach a PDF, PNG or XLSX file:",
-            type=["pdf", "png", "xlsx"],
-            key=f"fileuploader_{index}"
-        )
-
-        # Hidden/invisible “dummy” button so ENTER‐to‐send continues to work after you click a file
-        st.button("", key=f"dummy_{index}")
-
-        # “Upload File” button (keeps exactly the same logic)
-        if st.button("Upload File", key=f"upload_file_{index}"):
-            if uploaded_file is not None:
+            if file_obj is not None:
+                # Save & upload the file
                 timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
-                safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
+                safe_filename = f"{index}_{timestamp_str}_{file_obj.name}"
                 save_path = os.path.join(UPLOADS_DIR, safe_filename)
                 with open(save_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                    f.write(file_obj.getbuffer())
 
                 add_comment(
                     index,
@@ -1017,7 +995,40 @@ elif st.session_state.page == "detail":
                     text="",
                     attachment=safe_filename
                 )
-                st.success(f"Uploaded: {uploaded_file.name}")
-                st.rerun()
+                # Clear the uploader so it won’t re-upload
+                st.session_state[file_key] = None
+                st.success(f"Uploaded: {file_obj.name}")
+
+            elif typed_text:
+                # Send the typed message
+                add_comment(
+                    index,
+                    st.session_state.user_name,
+                    typed_text,
+                    attachment=None
+                )
+                # Clear the text input
+                st.session_state[text_key] = ""
+
+            # Streamlit reruns automatically after the callback.
+
+        text_key = f"new_msg_{index}"
+        file_key = f"fileuploader_{index}"
+
+        new_message = st.text_input(
+            "Type your message here…",
+            key=text_key,
+            on_change=_handle_enter,
+            placeholder="Press Enter to send text or an attached file"
+        )
+
+        uploaded_file = st.file_uploader(
+            "Attach a PDF, PNG or XLSX file (press Enter to upload)",
+            type=["pdf", "png", "xlsx"],
+            key=file_key
+        )
+
+        # Hidden button so ENTER remains bound to the text_input
+        st.button("", key=f"dummy_{index}")
 
     # End of “detail” page
