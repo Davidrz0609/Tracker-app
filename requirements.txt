@@ -2,3 +2,4 @@ streamlit
 streamlit-autorefresh
 pandas
 openpyxl
+pdfplumber
