@@ -201,7 +201,10 @@ if st.session_state.page == "home":
 # -------------------------------------------
 elif st.session_state.page == "purchase":
     st.markdown("## 💲 Purchase Request Form")
-    st.markdown(f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)", unsafe_allow_html=True)
+    st.markdown(
+        f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)",
+        unsafe_allow_html=True
+    )
     st.markdown("<hr>", unsafe_allow_html=True)
 
     if "purchase_item_rows" not in st.session_state:
@@ -332,7 +335,10 @@ elif st.session_state.page == "purchase":
 # -------------------------------------------
 elif st.session_state.page == "sales_order":
     st.markdown("## 🛒 Sales Order Request Form")
-    st.markdown(f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)", unsafe_allow_html=True)
+    st.markdown(
+        f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to Home](#)",
+        unsafe_allow_html=True
+    )
     st.markdown("<hr>", unsafe_allow_html=True)
 
     if "invoice_item_rows" not in st.session_state:
@@ -618,6 +624,10 @@ elif st.session_state.page == "requests":
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
 elif st.session_state.page == "detail":
+    # ─────────────────────────────────────────────────────────────────────
+    #  "Request Details" PAGE (with WhatsApp‐style chat bubbles)
+    # ─────────────────────────────────────────────────────────────────────
+
     st.markdown("## 📂 Request Details")
     st.markdown(
         f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to All Requests](#)",
