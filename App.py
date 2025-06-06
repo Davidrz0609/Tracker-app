@@ -475,7 +475,7 @@ elif st.session_state.page == "sales_order":
 
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 5 seconds ---
-    _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
+    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
 
     # --- Re-load data from disk so we see the latest requests ---
     load_data()
@@ -535,6 +535,9 @@ elif st.session_state.page == "requests":
             font-weight: 600;
             font-size: 13px;
         }
+        .type-icon {
+            font-size: 16px;
+        }
         </style>
         """, unsafe_allow_html=True)
 
@@ -555,7 +558,34 @@ elif st.session_state.page == "requests":
             with st.container():
                 cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
 
-                # 1) Type (icon) – we’ll move it into the Status column below
+                # --- Determine if this row is overdue (only if not READY or CANCELLED) ---
+                status_val = req.get("Status", "").upper()
+                eta_str = req.get("ETA Date", "")
+                try:
+                    eta_date = datetime.strptime(eta_str, "%Y-%m-%d").date()
+                except:
+                    eta_date = None
+
+                is_overdue = (
+                    eta_date is not None
+                    and eta_date < today
+                    and status_val not in ("READY", "CANCELLED")
+                )
+
+                # 1) Type (icon) or Overdue indicator
+                if is_overdue:
+                    # Show a red "⚠️ Overdue" in the Type column
+                    cols[0].markdown(
+                        "<div class='overdue-text'>⚠️ Overdue</div>",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    # Show the original Type icon (e.g., 🛒 or 💲)
+                    type_icon = req.get("Type", "")
+                    cols[0].markdown(
+                        f"<span class='type-icon'>{type_icon}</span>",
+                        unsafe_allow_html=True
+                    )
 
                 # 2) Ref#: prefer "Order#", but fall back to "Invoice"
                 ref_val = req.get("Order#", "") or req.get("Invoice", "")
@@ -568,29 +598,14 @@ elif st.session_state.page == "requests":
 
                 # 4) Quantity (join list if needed)
                 qty_list = req.get("Quantity", [])
-                qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list := req.get("Quantity", []), list) else str(qty_list)
+                if isinstance(qty_list, list):
+                    qty_display = ", ".join(str(q) for q in qty_list)
+                else:
+                    qty_display = str(qty_list)
                 cols[3].write(qty_display)
 
-                # 5) Status badge + logo icon to its right + possibly “Overdue” below
-                status_val = req.get("Status", "").upper()
+                # 5) Status badge (no overdue text here)
                 status_html = format_status_badge(status_val)
-
-                # Move the "Type" icon into the status cell, aligned right
-                icon = req.get("Type", "")
-                if icon:
-                    icon_html = f"<span style='float:right; font-size:16px'>{icon}</span>"
-                    status_html += icon_html
-
-                # Determine if this row is overdue (only if not READY or CANCELLED)
-                eta_str = req.get("ETA Date", "")
-                try:
-                    eta_date = datetime.strptime(eta_str, "%Y-%m-%d").date()
-                except:
-                    eta_date = None
-
-                if eta_date and eta_date < today and status_val not in ("READY", "CANCELLED"):
-                    status_html += "<div class='overdue-text'>⚠️ Overdue</div>"
-
                 cols[4].markdown(status_html, unsafe_allow_html=True)
 
                 # 6) Ordered Date
