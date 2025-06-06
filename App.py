@@ -512,6 +512,20 @@ elif st.session_state.page == "requests":
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
 
+    # --- Sort by soonest ETA date (earliest first) ---
+    from datetime import datetime
+
+    def parse_eta(req):
+        eta_str = req.get("ETA Date", "")
+        try:
+            # Expecting "YYYY-MM-DD" format
+            return datetime.strptime(eta_str, "%Y-%m-%d")
+        except:
+            # If parsing fails or empty, push it to the end
+            return datetime.max
+
+    filtered_requests = sorted(filtered_requests, key=parse_eta)
+
     if filtered_requests:
         # --- Table Header Styling (make headers larger) ---
         st.markdown("""
@@ -583,6 +597,7 @@ elif st.session_state.page == "requests":
 
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
