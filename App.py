@@ -645,8 +645,8 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
-    #  "Request Details" PAGE (with WhatsApp-style, centered chat bubbles &
-    #   file-upload feature, ENTER-to-send, and true-file downloads)
+    #  "Request Details" PAGE (WhatsApp‐style, centered chat bubbles &
+    #   file‐upload feature, ENTER‐to‐send, and true‐file downloads)
     # ─────────────────────────────────────────────────────────────────────
 
     st.markdown("## 📂 Request Details")
@@ -822,79 +822,97 @@ elif st.session_state.page == "detail":
             go_to("requests")
 
     # ─────────────────────────────────────────────────────────────────────
-    #  COMMENTS SECTION (WhatsApp-style, ENTER-to-send for both text & file)
+    #  COMMENTS SECTION (WhatsApp‐style, ENTER‐to‐send for both text & file)
     # ─────────────────────────────────────────────────────────────────────
 
-    # 1) Inject CSS (narrower bubbles, WhatsApp green for outgoing)
+    # 1) Inject UPDATED CSS (nicer bubbles, softer colors, subtle shadows)
     st.markdown(
         """
         <style>
+        /* Container padding around the whole chat area */
+        .chat-container {
+            padding: 8px;
+            background: #FFFFFF;      /* white background behind chat bubbles */
+            border-radius: 8px;
+        }
+
+        /* ---------------------- AUTHOR LABELS ---------------------- */
         /* Incoming author label (gray, left) */
         .chat-author-in {
             font-size: 12px;
-            color: #555;
-            margin-left: 5px;
-            margin-top: 6px;
+            font-weight: 600;
+            color: #555555;
+            margin: 4px 0 2px 5px;
+            text-align: left;
             clear: both;
         }
-        /* Outgoing author label (WhatsApp green, right) */
+        /* Outgoing author label (teal, right) */
         .chat-author-out {
             font-size: 12px;
+            font-weight: 600;
             color: #25D366;
-            margin-right: 5px;
-            margin-top: 6px;
-            clear: both;
+            margin: 4px 5px 2px 0;
             text-align: right;
+            clear: both;
+        }
+
+        /* ---------------------- BUBBLES ---------------------- */
+        /* Common bubble styles */
+        .chat-bubble-in,
+        .chat-bubble-out {
+            padding: 10px 14px;
+            border-radius: 20px;
+            margin: 4px 0;
+            max-width: 60%;
+            line-height: 1.4;
+            word-wrap: break-word;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            position: relative;
         }
         /* Incoming bubble (light gray, left) */
         .chat-bubble-in {
-            background: #EDEDED;
-            color: #000;
-            padding: 8px 12px;
-            border-radius: 16px;
-            margin: 2px 0;
-            max-width: 40%;
+            background: #F1F0F0;
+            color: #000000;
             float: left;
             clear: both;
-            word-wrap: break-word;
         }
-        /* Outgoing bubble (WhatsApp green, right) */
+        /* Outgoing bubble (light green, right) */
         .chat-bubble-out {
-            background: #25D366;
-            color: #FFF;
-            padding: 8px 12px;
-            border-radius: 16px;
-            margin: 2px 0;
-            max-width: 40%;
+            background: #DCF8C6;
+            color: #000000;
             float: right;
             clear: both;
-            word-wrap: break-word;
         }
-        /* Timestamp below bubble (small, gray) */
+
+        /* ---------------------- TIMESTAMPS ---------------------- */
+        /* Timestamp below each bubble */
         .chat-timestamp {
             font-size: 10px;
-            color: #888;
+            color: #888888;
             margin-top: 2px;
-            margin-bottom: 8px;
         }
-        /* Attachment box (light blue background) */
+
+        /* ---------------------- ATTACHMENTS ---------------------- */
+        /* Attachment box (soft blue, left) */
         .chat-attachment {
-            background: #DDEEFF;
-            color: #003366;
+            background: #E0F7FA;
+            color: #006064;
             padding: 8px 12px;
-            border-radius: 8px;
-            margin: 4px 0;
-            max-width: 40%;
+            border-radius: 12px;
+            margin: 6px 0;
+            max-width: 60%;
             float: left;
             clear: both;
             word-wrap: break-word;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
         }
         .attachment-link {
-            color: #003366;
-            text-decoration: none;
+            color: #006064;
+            text-decoration: underline;
             font-weight: 600;
         }
-        /* Clear floats */
+
+        /* Clear floats between messages */
         .clearfix {
             clear: both;
         }
@@ -903,27 +921,28 @@ elif st.session_state.page == "detail":
         unsafe_allow_html=True
     )
 
-    # 2) Render chat inside a centered column
+    # 2) Render chat inside a centered column (inside a .chat-container)
     st.markdown("### 💬 Comments (Chat-Style)")
     col_l, col_center, col_r = st.columns([1, 6, 1])
     with col_center:
-        existing_comments = st.session_state.comments.get(str(index), [])
+        # Wrap all existing comments inside a “chat-container” div
+        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
-        # Render all existing comments in chronological order
+        existing_comments = st.session_state.comments.get(str(index), [])
         for comment in existing_comments:
             author = comment["author"]
             text = comment.get("text", "")
             when = comment.get("when", "")
             attachment = comment.get("attachment", None)
 
-            # If there’s an attachment, show a download button instead of an HTML link
+            # If there’s an attachment, show a download button (unstyled HTML)
             if attachment:
                 file_path = os.path.join(UPLOADS_DIR, attachment)
                 try:
                     with open(file_path, "rb") as f:
                         file_bytes = f.read()
 
-                    # Render a real download button so the user gets the raw XLSX/PNG/PDF
+                    # Real download button so user gets the raw file
                     st.download_button(
                         label=f"📎 {attachment}",
                         data=file_bytes,
@@ -931,19 +950,16 @@ elif st.session_state.page == "detail":
                         mime="application/octet-stream",
                         key=f"dl_{index}_{attachment}"
                     )
-                    # Show who uploaded it and when
-                    if author == st.session_state.user_name:
-                        st.markdown(f'<div class="chat-author-out">{author}</div>',
-                                    unsafe_allow_html=True)
-                        st.markdown(f'<div class="chat-timestamp" style="text-align: right;">{when}</div>',
-                                    unsafe_allow_html=True)
-                    else:
-                        st.markdown(f'<div class="chat-author-in">{author}</div>',
-                                    unsafe_allow_html=True)
-                        st.markdown(f'<div class="chat-timestamp" style="text-align: left;">{when}</div>',
-                                    unsafe_allow_html=True)
 
-                    # Clear any floats before the next message
+                    # Author label + timestamp
+                    if author == st.session_state.user_name:
+                        st.markdown(f'<div class="chat-author-out">{author}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="chat-timestamp" style="text-align: right;">{when}</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="chat-author-in">{author}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="chat-timestamp" style="text-align: left;">{when}</div>', unsafe_allow_html=True)
+
+                    # Clear floats
                     st.markdown('<div class="clearfix"></div>', unsafe_allow_html=True)
 
                 except FileNotFoundError:
@@ -970,24 +986,49 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
 
-        # 3) INPUT ROW: single text_input w/ ENTER handling for both text & file
+        # Close the “chat-container” wrapper
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # 3) INPUT ROW: text_input with ENTER‐to‐send + file_uploader + hidden “dummy” button
         st.markdown("---")
 
-        def _handle_enter():
-            """
-            Called whenever the user presses Enter in the text_input.
-            If there’s a selected file, upload it; otherwise send text.
-            """
-            file_obj = st.session_state.get(file_key)
-            typed_text = st.session_state.get(text_key, "").strip()
+        def _send_on_enter():
+            typed = st.session_state[text_input_key]
+            if typed.strip():
+                add_comment(
+                    index,
+                    st.session_state.user_name,
+                    typed.strip(),
+                    attachment=None
+                )
+                st.session_state[text_input_key] = ""
+                # Streamlit reruns automatically after this callback.
 
-            if file_obj is not None:
-                # Save & upload the file
+        text_input_key = f"new_msg_{index}"
+        new_message = st.text_input(
+            "Type your message here…",
+            key=text_input_key,
+            on_change=_send_on_enter,
+            placeholder="Press Enter to send text"
+        )
+
+        uploaded_file = st.file_uploader(
+            "Attach a PDF, PNG or XLSX file (then press Enter to upload)",
+            type=["pdf", "png", "xlsx"],
+            key=f"fileuploader_{index}"
+        )
+
+        # Hidden/invisible “dummy” button so ENTER‐to‐send continues to work after you click a file
+        st.button("", key=f"dummy_{index}")
+
+        # “Upload File” button (keeps exactly the same logic if you still want it)
+        if st.button("Upload File", key=f"upload_file_{index}"):
+            if uploaded_file is not None:
                 timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
-                safe_filename = f"{index}_{timestamp_str}_{file_obj.name}"
+                safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
                 save_path = os.path.join(UPLOADS_DIR, safe_filename)
                 with open(save_path, "wb") as f:
-                    f.write(file_obj.getbuffer())
+                    f.write(uploaded_file.getbuffer())
 
                 add_comment(
                     index,
@@ -995,40 +1036,7 @@ elif st.session_state.page == "detail":
                     text="",
                     attachment=safe_filename
                 )
-                # Clear the uploader so it won’t re-upload
-                st.session_state[file_key] = None
-                st.success(f"Uploaded: {file_obj.name}")
+                st.success(f"Uploaded: {uploaded_file.name}")
+                st.rerun()
 
-            elif typed_text:
-                # Send the typed message
-                add_comment(
-                    index,
-                    st.session_state.user_name,
-                    typed_text,
-                    attachment=None
-                )
-                # Clear the text input
-                st.session_state[text_key] = ""
-
-            # Streamlit reruns automatically after the callback.
-
-        text_key = f"new_msg_{index}"
-        file_key = f"fileuploader_{index}"
-
-        new_message = st.text_input(
-            "Type your message here…",
-            key=text_key,
-            on_change=_handle_enter,
-            placeholder="Press Enter to send text or an attached file"
-        )
-
-        uploaded_file = st.file_uploader(
-            "Attach a PDF, PNG or XLSX file (press Enter to upload)",
-            type=["pdf", "png", "xlsx"],
-            key=file_key
-        )
-
-        # Hidden button so ENTER remains bound to the text_input
-        st.button("", key=f"dummy_{index}")
-
-    # End of “detail” page
+    # End of “detail” page  
