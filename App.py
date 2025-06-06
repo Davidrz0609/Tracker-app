@@ -472,7 +472,6 @@ elif st.session_state.page == "sales_order":
     with col_back:
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
-
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 5 seconds ---
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
@@ -530,13 +529,15 @@ elif st.session_state.page == "requests":
             font-size: 18px;
             padding: 0.5rem 0;
         }
-        .overdue-text {
+        .overdue-icon {
             color: #e74c3c;
             font-weight: 600;
-            font-size: 13px;
+            font-size: 14px;
+            margin-right: 6px;
+            vertical-align: middle;
         }
         .type-icon {
-            font-size: 16px;
+            font-size: 18px;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -572,20 +573,12 @@ elif st.session_state.page == "requests":
                     and status_val not in ("READY", "CANCELLED")
                 )
 
-                # 1) Type (icon) or Overdue indicator
-                if is_overdue:
-                    # Show a red "⚠️ Overdue" in the Type column
-                    cols[0].markdown(
-                        "<div class='overdue-text'>⚠️ Overdue</div>",
-                        unsafe_allow_html=True
-                    )
-                else:
-                    # Show the original Type icon (e.g., 🛒 or 💲)
-                    type_icon = req.get("Type", "")
-                    cols[0].markdown(
-                        f"<span class='type-icon'>{type_icon}</span>",
-                        unsafe_allow_html=True
-                    )
+                # 1) Type (icon)
+                type_icon = req.get("Type", "")
+                cols[0].markdown(
+                    f"<span class='type-icon'>{type_icon}</span>",
+                    unsafe_allow_html=True
+                )
 
                 # 2) Ref#: prefer "Order#", but fall back to "Invoice"
                 ref_val = req.get("Order#", "") or req.get("Invoice", "")
@@ -604,8 +597,11 @@ elif st.session_state.page == "requests":
                     qty_display = str(qty_list)
                 cols[3].write(qty_display)
 
-                # 5) Status badge (no overdue text here)
-                status_html = format_status_badge(status_val)
+                # 5) Status column: possibly show overdue icon then status badge
+                status_html = ""
+                if is_overdue:
+                    status_html += "<span class='overdue-icon'>⚠️</span>"
+                status_html += format_status_badge(status_val)
                 cols[4].markdown(status_html, unsafe_allow_html=True)
 
                 # 6) Ordered Date
