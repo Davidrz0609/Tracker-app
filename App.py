@@ -54,18 +54,46 @@ def format_status_badge(status):
     """
 
 # --- Persistence Helpers ---
-def load_data():
-    if os.path.exists(REQUESTS_FILE):
-        with open(REQUESTS_FILE, "r") as f:
-            st.session_state.requests = json.load(f)
-    else:
-        st.session_state.requests = []
+import os, json
 
+REQUESTS_FILE = "requests.json"
+COMMENTS_FILE = "comments.json"
+
+def load_data():
+    # ─────────── LOAD requests.json ───────────
+    if os.path.exists(REQUESTS_FILE):
+        try:
+            with open(REQUESTS_FILE, "r", encoding="utf-8") as f:
+                contents = f.read().strip()
+                if contents:
+                    st.session_state.requests = json.loads(contents)
+                else:
+                    # file exists but is empty → start with empty list
+                    st.session_state.requests = []
+        except json.JSONDecodeError:
+            # requests.json is malformed → overwrite with empty list
+            st.session_state.requests = []
+    else:
+        # file doesn’t exist → initialize and create it
+        st.session_state.requests = []
+        with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
+            json.dump([], f)
+
+    # ─────────── LOAD comments.json ───────────
     if os.path.exists(COMMENTS_FILE):
-        with open(COMMENTS_FILE, "r") as f:
-            st.session_state.comments = json.load(f)
+        try:
+            with open(COMMENTS_FILE, "r", encoding="utf-8") as f:
+                contents = f.read().strip()
+                if contents:
+                    st.session_state.comments = json.loads(contents)
+                else:
+                    st.session_state.comments = {}
+        except json.JSONDecodeError:
+            st.session_state.comments = {}
     else:
         st.session_state.comments = {}
+        with open(COMMENTS_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
 
 def save_data():
     with open(REQUESTS_FILE, "w") as f:
