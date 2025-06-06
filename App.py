@@ -475,7 +475,7 @@ elif st.session_state.page == "sales_order":
 
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 5 seconds ---
-    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
+    _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
 
     # --- Re-load data from disk so we see the latest requests ---
     load_data()
@@ -555,8 +555,7 @@ elif st.session_state.page == "requests":
             with st.container():
                 cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
 
-                # 1) Type (icon)
-                cols[0].write(req.get("Type", ""))
+                # 1) Type (icon) – we’ll move it into the Status column below
 
                 # 2) Ref#: prefer "Order#", but fall back to "Invoice"
                 ref_val = req.get("Order#", "") or req.get("Invoice", "")
@@ -572,19 +571,24 @@ elif st.session_state.page == "requests":
                 qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list := req.get("Quantity", []), list) else str(qty_list)
                 cols[3].write(qty_display)
 
-                # 5) Status badge + possibly “Overdue” below it
+                # 5) Status badge + logo icon to its right + possibly “Overdue” below
                 status_val = req.get("Status", "").upper()
                 status_html = format_status_badge(status_val)
 
-                # Determine if this row is overdue:
+                # Move the "Type" icon into the status cell, aligned right
+                icon = req.get("Type", "")
+                if icon:
+                    icon_html = f"<span style='float:right; font-size:16px'>{icon}</span>"
+                    status_html += icon_html
+
+                # Determine if this row is overdue (only if not READY or CANCELLED)
                 eta_str = req.get("ETA Date", "")
                 try:
                     eta_date = datetime.strptime(eta_str, "%Y-%m-%d").date()
                 except:
                     eta_date = None
 
-                if eta_date and eta_date < today and status_val != "READY":
-                    # Append a small red “⚠️ Overdue” line below the badge
+                if eta_date and eta_date < today and status_val not in ("READY", "CANCELLED"):
                     status_html += "<div class='overdue-text'>⚠️ Overdue</div>"
 
                 cols[4].markdown(status_html, unsafe_allow_html=True)
@@ -611,7 +615,6 @@ elif st.session_state.page == "requests":
 
     if st.button("⬅ Back to Home"):
         go_to("home")
- 
 
 
 elif st.session_state.page == "detail":
