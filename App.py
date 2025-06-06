@@ -128,7 +128,7 @@ if not st.session_state.authenticated:
             st.session_state.user_name = username_input
             st.session_state.page = "home"
             st.success(f"Welcome, **{username_input}**!")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("❌ Invalid username or password.")
     st.stop()  # Prevent anything else from rendering until logged in
