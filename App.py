@@ -645,7 +645,8 @@ elif st.session_state.page == "requests":
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
-    #  "Request Details" PAGE (WhatsApp-style chat + auto-send on Enter + auto-file-upload)
+    #  "Request Details" PAGE (WhatsApp‐style, centered chat bubbles &
+    #   file‐upload feature, ENTER‐to‐send, and true‐file downloads)
     # ─────────────────────────────────────────────────────────────────────
 
     st.markdown("## 📂 Request Details")
@@ -821,10 +822,11 @@ elif st.session_state.page == "detail":
             go_to("requests")
 
     # ─────────────────────────────────────────────────────────────────────
-    #  COMMENTS SECTION (WhatsApp-style, auto-send on Enter + auto-file-upload)
+    #  COMMENTS SECTION (WhatsApp‐style, centered chat bubbles & file‐upload)
+    #  + ENTER‐to‐send + true file downloads
     # ─────────────────────────────────────────────────────────────────────
 
-    # 1) Inject CSS (narrow bubbles, WhatsApp green for outgoing)
+    # 1) Inject CSS (narrower bubbles, WhatsApp green for outgoing)
     st.markdown(
         """
         <style>
@@ -903,47 +905,55 @@ elif st.session_state.page == "detail":
     )
 
     # 2) Render chat inside a centered column
-    st.markdown("### 💬 Comments (Chat-Style)")
+    st.markdown("### 💬 Comments (Chat‐Style)")
     col_l, col_center, col_r = st.columns([1, 6, 1])
     with col_center:
         existing_comments = st.session_state.comments.get(str(index), [])
 
+        # Render all existing comments in chronological order
         for comment in existing_comments:
             author = comment["author"]
             text = comment.get("text", "")
             when = comment.get("when", "")
             attachment = comment.get("attachment", None)
 
-            # If there's an attachment, show it first in a styled box
+            # If there’s an attachment, show a download button instead of an HTML link
             if attachment:
                 file_path = os.path.join(UPLOADS_DIR, attachment)
-                if author == st.session_state.user_name:
-                    # Outgoing attachment (right-aligned)
-                    st.markdown(
-                        f'<div class="chat-author-out">{author}</div>'
-                        f'<div class="chat-attachment" style="float: right;">'
-                        f'📎 <a href="/{file_path}" class="attachment-link" download>{attachment}</a>'
-                        f'</div>'
-                        f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
-                        f'<div class="clearfix"></div>',
-                        unsafe_allow_html=True
-                    )
-                else:
-                    # Incoming attachment (left-aligned)
-                    st.markdown(
-                        f'<div class="chat-author-in">{author}</div>'
-                        f'<div class="chat-attachment">'
-                        f'📎 <a href="/{file_path}" class="attachment-link" download>{attachment}</a>'
-                        f'</div>'
-                        f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
-                        f'<div class="clearfix"></div>',
-                        unsafe_allow_html=True
-                    )
+                try:
+                    with open(file_path, "rb") as f:
+                        file_bytes = f.read()
 
-            # Then render the text bubble if any text exists
+                    # Render a real download button so the user gets the raw XLSX/PNG/PDF
+                    st.download_button(
+                        label=f"📎 {attachment}",
+                        data=file_bytes,
+                        file_name=attachment,
+                        mime="application/octet-stream",
+                        key=f"dl_{index}_{attachment}"
+                    )
+                    # Show who uploaded it and when
+                    if author == st.session_state.user_name:
+                        st.markdown(f'<div class="chat-author-out">{author}</div>',
+                                    unsafe_allow_html=True)
+                        st.markdown(f'<div class="chat-timestamp" style="text-align: right;">{when}</div>',
+                                    unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="chat-author-in">{author}</div>',
+                                    unsafe_allow_html=True)
+                        st.markdown(f'<div class="chat-timestamp" style="text-align: left;">{when}</div>',
+                                    unsafe_allow_html=True)
+
+                    # Clear any floats before the next message
+                    st.markdown('<div class="clearfix"></div>', unsafe_allow_html=True)
+
+                except FileNotFoundError:
+                    st.error(f"⚠️ Attachment not found: {attachment}")
+
+            # Then render the text bubble (if any text exists)
             if text:
                 if author == st.session_state.user_name:
-                    # Outgoing text: right-aligned green bubble
+                    # Outgoing text: right‐aligned green bubble
                     st.markdown(
                         f'<div class="chat-author-out">{author}</div>'
                         f'<div class="chat-bubble-out">{text}</div>'
@@ -952,7 +962,7 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
                 else:
-                    # Incoming text: left-aligned gray bubble
+                    # Incoming text: left‐aligned gray bubble
                     st.markdown(
                         f'<div class="chat-author-in">{author}</div>'
                         f'<div class="chat-bubble-in">{text}</div>'
@@ -961,56 +971,53 @@ elif st.session_state.page == "detail":
                         unsafe_allow_html=True
                     )
 
-        # 3) Input row: single text_input + file_uploader + no buttons
+        # 3) INPUT ROW: text_input with ENTER‐to‐send + file_uploader + hidden “dummy” button
         st.markdown("---")
 
-        # a) Text input that auto-submits on Enter
+        def _send_on_enter():
+            typed = st.session_state[text_input_key]
+            if typed.strip():
+                add_comment(
+                    index,
+                    st.session_state.user_name,
+                    typed.strip(),
+                    attachment=None
+                )
+                st.session_state[text_input_key] = ""
+                # No st.rerun() here—Streamlit reruns automatically after callback.
+
         text_input_key = f"new_msg_{index}"
         new_message = st.text_input(
-            "Type your message here and press Enter to send…",
-            value="",
-            key=text_input_key
+            "Type your message here…",
+            key=text_input_key,
+            on_change=_send_on_enter
         )
-        if new_message.strip():
-            # Add comment immediately when Enter is pressed
-            add_comment(
-                index,
-                st.session_state.user_name,
-                new_message.strip(),
-                attachment=None
-            )
-            # Clear the text box so it’s empty again
-            st.session_state[text_input_key] = ""
-            st.experimental_rerun()  # trigger a rerun to display the new comment
-
-        # b) File uploader that auto-submits on selection
-        file_flag_key = f"file_processed_{index}"
-        # Ensure the flag exists for this request
-        if file_flag_key not in st.session_state:
-            st.session_state[file_flag_key] = False
 
         uploaded_file = st.file_uploader(
-            "Attach a PDF, PNG or XLSX and it will send automatically:",
+            "Attach a PDF, PNG or XLSX file:",
             type=["pdf", "png", "xlsx"],
             key=f"fileuploader_{index}"
         )
 
-        # As soon as a file is selected (uploaded_file is not None) and we haven't yet processed it,
-        # we write it to disk and record it as a comment. Then we set the flag so we don’t do it again.
-        if uploaded_file is not None and not st.session_state[file_flag_key]:
-            timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
-            safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
-            save_path = os.path.join(UPLOADS_DIR, safe_filename)
-            # Save to disk
-            with open(save_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            # Record as a comment with only the attachment
-            add_comment(
-                index,
-                st.session_state.user_name,
-                text="",
-                attachment=safe_filename
-            )
-            st.session_state[file_flag_key] = True
-            st.success(f"Uploaded: {uploaded_file.name}")
-            st.experimental_rerun()  # rerun so the new attachment comment appears immediately
+        # Hidden/invisible “dummy” button so ENTER‐to‐send continues to work after you click a file
+        st.button("", key=f"dummy_{index}")
+
+        # “Upload File” button (keeps exactly the same logic)
+        if st.button("Upload File", key=f"upload_file_{index}"):
+            if uploaded_file is not None:
+                timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+                safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
+                save_path = os.path.join(UPLOADS_DIR, safe_filename)
+                with open(save_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+
+                add_comment(
+                    index,
+                    st.session_state.user_name,
+                    text="",
+                    attachment=safe_filename
+                )
+                st.success(f"Uploaded: {uploaded_file.name}")
+                st.rerun()
+
+    # End of “detail” page
