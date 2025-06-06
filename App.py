@@ -1059,7 +1059,7 @@ elif st.session_state.page == "detail":
             st.session_state[file_uploader_key] = None
 
             # Force a rerun now that we have a new attachment
-            st.experimental_rerun()
+            st.rerun()
 
     # c) Put everything into a fixed-footer bar
     st.markdown("<div class='bottom-input-container'>", unsafe_allow_html=True)
