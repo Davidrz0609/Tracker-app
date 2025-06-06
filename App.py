@@ -796,7 +796,7 @@ elif st.session_state.page == "detail":
                 st.session_state.requests[index] = request
                 save_data()
                 st.success("✅ Changes saved.")
-                st.experimental_rerun()
+                st.rerun()
 
         with col_delete:
             if st.button("🗑️ Delete Request", use_container_width=True):
