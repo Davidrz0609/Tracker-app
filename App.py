@@ -475,7 +475,7 @@ elif st.session_state.page == "sales_order":
 
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 5 seconds ---
-    _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
+    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
 
     # --- Re-load data from disk so we see the latest requests ---
     load_data()
