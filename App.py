@@ -669,12 +669,6 @@ elif st.session_state.page == "requests":
     if st.button("⬅ Back to Home"):
         go_to("home")
 
-
-
-import os
-import pdfplumber
-from datetime import date, datetime
-
 # -------------------------------------------
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
@@ -913,3 +907,4 @@ elif st.session_state.page == "detail":
                 st.success(f"Uploaded: {uploaded.name}")
                 st.experimental_rerun()
     # End of detail page
+
