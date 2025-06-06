@@ -670,13 +670,17 @@ elif st.session_state.page == "requests":
         go_to("home")
 
 
+import os
+import pdfplumber
+from datetime import date, datetime
+
 # -------------------------------------------
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
 elif st.session_state.page == "detail":
     # ─────────────────────────────────────────────────────────────────────
     #  “Request Details” PAGE (WhatsApp‐style chat + auto‐refresh)
-    #  + inline image/PDF previews, Enter‐to‐send, file uploads, download
+    #  + inline image/PDF previews at higher resolution, Enter‐to‐send, uploads
     # ─────────────────────────────────────────────────────────────────────
 
     # 1) Auto‐refresh every 1 second
@@ -707,11 +711,12 @@ elif st.session_state.page == "detail":
 
         with col1:
             # Ref# / Order#
-            prev = request.get("Order#", "")
-            v = st.text_input("Ref#", value=prev, key="detail_Order#")
-            if v != prev: updated_fields["Order#"] = v
+            prev_ref = request.get("Order#", "")
+            new_ref = st.text_input("Ref#", value=prev_ref, key="detail_Order#")
+            if new_ref != prev_ref:
+                updated_fields["Order#"] = new_ref
 
-            # Items list
+            # Dynamic Items
             descs = request.get("Description", [])
             qtys  = request.get("Quantity", [])
             rows = max(len(descs), len(qtys), 1)
@@ -729,83 +734,102 @@ elif st.session_state.page == "detail":
                     q = q_raw
                 new_descs.append(d)
                 new_qtys.append(q)
-            if new_descs != descs: updated_fields["Description"] = new_descs
-            if new_qtys != qtys:   updated_fields["Quantity"]    = new_qtys
+            if new_descs != descs:
+                updated_fields["Description"] = new_descs
+            if new_qtys != qtys:
+                updated_fields["Quantity"]    = new_qtys
 
             # Status
-            opts = [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
-            curr = request.get("Status", " ")
-            if curr not in opts: curr = " "
-            s = st.selectbox("Status", opts, index=opts.index(curr), key="detail_Status")
-            if s != curr: updated_fields["Status"] = s
+            status_opts = [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
+            prev_status = request.get("Status", " ")
+            if prev_status not in status_opts:
+                prev_status = " "
+            new_status = st.selectbox("Status", status_opts,
+                                      index=status_opts.index(prev_status),
+                                      key="detail_Status")
+            if new_status != prev_status:
+                updated_fields["Status"] = new_status
 
         with col2:
             # Tracking# / Invoice field
-            inv_prev = request.get("Invoice", "")
-            inv = st.text_input("Tracking#", value=inv_prev, key="detail_Invoice")
-            if inv != inv_prev: updated_fields["Invoice"] = inv
+            prev_inv = request.get("Invoice", "")
+            new_inv  = st.text_input("Tracking#", value=prev_inv, key="detail_Invoice")
+            if new_inv != prev_inv:
+                updated_fields["Invoice"] = new_inv
 
             # Proveedor / Cliente
-            label = "Proveedor" if is_purchase else "Cliente"
-            p_prev = request.get(label, "")
-            p = st.text_input(label, value=p_prev, key=f"detail_{label}")
-            if p != p_prev: updated_fields[label] = p
+            partner_label = "Proveedor" if is_purchase else "Cliente"
+            prev_partner = request.get(partner_label, "")
+            new_partner  = st.text_input(partner_label, value=prev_partner, key=f"detail_{partner_label}")
+            if new_partner != prev_partner:
+                updated_fields[partner_label] = new_partner
 
-            # Pago
-            pago_prev = request.get("Pago", " ")
-            pago = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"],
-                                index=[" ", "Wire", "Cheque", "Credito", "Efectivo"].index(pago_prev),
-                                key="detail_Pago")
-            if pago != pago_prev: updated_fields["Pago"] = pago
+            # Método de Pago
+            pago_opts = [" ", "Wire", "Cheque", "Credito", "Efectivo"]
+            prev_pago = request.get("Pago", " ")
+            new_pago  = st.selectbox("Método de Pago", pago_opts,
+                                     index=pago_opts.index(prev_pago),
+                                     key="detail_Pago")
+            if new_pago != prev_pago:
+                updated_fields["Pago"] = new_pago
 
             # Encargado
-            enc_prev = request.get("Encargado", " ")
-            enc = st.selectbox("Encargado", [" ", "Andres","Tito","Luz","David","Marcela","John","Carolina","Thea"],
-                               index=[" ", "Andres","Tito","Luz","David","Marcela","John","Carolina","Thea"].index(enc_prev),
-                               key="detail_Encargado")
-            if enc != enc_prev: updated_fields["Encargado"] = enc
+            enc_opts = [" ", "Andres","Tito","Luz","David","Marcela","John","Carolina","Thea"]
+            prev_enc = request.get("Encargado", " ")
+            new_enc  = st.selectbox("Encargado", enc_opts,
+                                    index=enc_opts.index(prev_enc),
+                                    key="detail_Encargado")
+            if new_enc != prev_enc:
+                updated_fields["Encargado"] = new_enc
 
     # ──────────── SHIPPING INFORMATION ────────────
     with st.container():
         st.markdown("### 🚚 Shipping Information")
         c3, c4 = st.columns(2)
-        # Order Date
-        d_prev = request.get("Date", str(date.today()))
-        d_new  = c3.date_input("Order Date", value=pd.to_datetime(d_prev), key="detail_Date")
-        if str(d_new) != d_prev: updated_fields["Date"] = str(d_new)
-        # ETA Date
-        e_prev = request.get("ETA Date", str(date.today()))
-        e_new  = c4.date_input("ETA Date", value=pd.to_datetime(e_prev), key="detail_ETA")
-        if str(e_new) != e_prev: updated_fields["ETA Date"] = str(e_new)
-        # Shipping Method
-        sm_prev = request.get("Shipping Method", " ")
-        sm = st.selectbox("Shipping Method", [" ","Nivel 1 PU","Nivel 3 PU","Nivel 3 DEL"],
-                          index=[" ","Nivel 1 PU","Nivel 3 PU","Nivel 3 DEL"].index(sm_prev),
-                          key="detail_Shipping")
-        if sm != sm_prev: updated_fields["Shipping Method"] = sm
 
-    # ──────────── ACTION BUTTONS ────────────
+        # Order Date
+        prev_date = request.get("Date", str(date.today()))
+        new_date  = c3.date_input("Order Date", value=pd.to_datetime(prev_date), key="detail_Date")
+        if str(new_date) != prev_date:
+            updated_fields["Date"] = str(new_date)
+
+        # ETA Date
+        prev_eta = request.get("ETA Date", str(date.today()))
+        new_eta  = c4.date_input("ETA Date", value=pd.to_datetime(prev_eta), key="detail_ETA")
+        if str(new_eta) != prev_eta:
+            updated_fields["ETA Date"] = str(new_eta)
+
+        # Shipping Method
+        ship_opts = [" ","Nivel 1 PU","Nivel 3 PU","Nivel 3 DEL"]
+        prev_ship = request.get("Shipping Method", " ")
+        new_ship  = st.selectbox("Shipping Method", ship_opts,
+                                 index=ship_opts.index(prev_ship),
+                                 key="detail_Shipping")
+        if new_ship != prev_ship:
+            updated_fields["Shipping Method"] = new_ship
+
+    # ──────────── SAVE / DELETE / BACK BUTTONS ────────────
     st.markdown("---")
-    bs, bd, bb = st.columns([2,1,1])
-    with bs:
+    col_s, col_del, col_b = st.columns([2,1,1])
+    with col_s:
         if updated_fields and st.button("💾 Save Changes", use_container_width=True):
             request.update(updated_fields)
             st.session_state.requests[index] = request
             save_data()
             st.success("✅ Changes saved.")
             st.rerun()
-    with bd:
+    with col_del:
         if st.button("🗑️ Delete Request", use_container_width=True):
             delete_request(index)
-    with bb:
+    with col_b:
         if st.button("⬅ Back to All Requests", use_container_width=True):
             go_to("requests")
 
     # ─────────────────────────────────────────────────────────────────────
-    #  COMMENTS SECTION (chat bubbles, inline previews, download, Enter/send)
+    #  COMMENTS SECTION (chat bubbles + inline high-res previews + downloads)
     # ─────────────────────────────────────────────────────────────────────
 
-    # Inject CSS for bubbles, attachments, timestamps
+    # 1) CSS for chat bubbles & timestamps
     st.markdown("""
     <style>
       .chat-container{padding:8px;background:#fff;border-radius:8px;}
@@ -820,32 +844,37 @@ elif st.session_state.page == "detail":
     """, unsafe_allow_html=True)
 
     st.markdown("### 💬 Comments (Chat-Style)")
-    l, center, r = st.columns([1,6,1])
-    with center:
+    col_l, col_center, col_r = st.columns([1,6,1])
+    with col_center:
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-        existing = st.session_state.comments.get(str(index), [])
-        for comment in existing:
-            author = comment["author"]
-            text   = comment.get("text","")
-            when   = comment.get("when","")
-            attachment = comment.get("attachment", None)
 
-            # Render attachment preview + download
+        comments = st.session_state.comments.get(str(index), [])
+        for cm in comments:
+            author     = cm["author"]
+            text       = cm.get("text","")
+            when       = cm.get("when","")
+            attachment = cm.get("attachment", None)
+
+            # --- inline preview + download ---
             if attachment:
                 path = os.path.join(UPLOADS_DIR, attachment)
                 ext  = os.path.splitext(attachment)[1].lower()
 
-                if ext in (".png",".jpg",".jpeg"):
-                    st.image(path, caption=attachment, width=200)
+                # image preview
+                if ext in (".png", ".jpg", ".jpeg"):
+                    st.image(path, caption=attachment, width=400)
+
+                # PDF first‐page at 300 DPI
                 elif ext == ".pdf":
                     with pdfplumber.open(path) as pdf:
                         page = pdf.pages[0]
-                        pil_img = page.to_image(resolution=150).original
-                    st.image(pil_img, caption=f"Preview: {attachment}", width=200)
+                        pil_img = page.to_image(resolution=300).original
+                    st.image(pil_img, caption=f"Preview: {attachment}", width=400)
 
                 # download button
                 try:
-                    with open(path, "rb") as f: data = f.read()
+                    with open(path, "rb") as f:
+                        data = f.read()
                     st.download_button(
                         label=f"📎 Download {attachment}",
                         data=data,
@@ -856,7 +885,7 @@ elif st.session_state.page == "detail":
                 except FileNotFoundError:
                     st.error(f"⚠️ Attachment not found: {attachment}")
 
-            # Render text bubble
+            # --- chat bubble text ---
             if text:
                 if author == st.session_state.user_name:
                     st.markdown(
@@ -877,8 +906,9 @@ elif st.session_state.page == "detail":
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Input row: ENTER-to-send + file uploader + dummy + upload button
+        # ─── INPUT ROW: ENTER→send + file uploader + dummy + upload button ───
         st.markdown("---")
+
         def _send_on_enter():
             key = f"new_msg_{index}"
             msg = st.session_state[key]
@@ -888,13 +918,15 @@ elif st.session_state.page == "detail":
                 st.experimental_rerun()
 
         text_key = f"new_msg_{index}"
-        st.text_input("Type your message here…", key=text_key,
+        st.text_input("Type your message here…",
+                      key=text_key,
                       placeholder="Press Enter to send text",
                       on_change=_send_on_enter)
 
         uploaded = st.file_uploader(
             "Attach a PDF, PNG or XLSX file (then press Enter to upload)",
-            type=["pdf","png","xlsx"], key=f"fileuploader_{index}"
+            type=["pdf","png","xlsx"],
+            key=f"fileuploader_{index}"
         )
         st.button("", key=f"dummy_{index}")  # invisible dummy
 
@@ -902,9 +934,12 @@ elif st.session_state.page == "detail":
             if uploaded is not None:
                 ts = datetime.now().strftime("%Y%m%d%H%M%S")
                 fname = f"{index}_{ts}_{uploaded.name}"
-                save_path = os.path.join(UPLOADS_DIR, fname)
-                with open(save_path, "wb") as f: f.write(uploaded.getbuffer())
+                out_path = os.path.join(UPLOADS_DIR, fname)
+                with open(out_path, "wb") as f:
+                    f.write(uploaded.getbuffer())
                 add_comment(index, st.session_state.user_name, text="", attachment=fname)
                 st.success(f"Uploaded: {uploaded.name}")
                 st.experimental_rerun()
+
     # End of detail page
+
