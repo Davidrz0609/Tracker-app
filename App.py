@@ -475,7 +475,7 @@ elif st.session_state.page == "sales_order":
 
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 5 seconds ---
-    _ = st_autorefresh(interval=5000, limit=None, key="requests_refresh")
+    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
 
     # --- Re-load data from disk so we see the latest requests ---
     load_data()
@@ -512,26 +512,17 @@ elif st.session_state.page == "requests":
     # --- Sort by soonest ETA date (earliest first) ---
     from datetime import datetime, date
 
-    def parse_eta_date(value):
-        """
-        Try to coerce value into a date object:
-         - If already a date or datetime, convert to date.
-         - If a string of the form "YYYY-MM-DD", strip whitespace and parse.
-         - Otherwise return None.
-        """
-        if isinstance(value, date):
-            return value
-        if isinstance(value, datetime):
-            return value.date()
+    def parse_eta(req):
+        eta_str = req.get("ETA Date", "")
         try:
-            return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
-        except Exception:
-            return None
+            return datetime.strptime(eta_str, "%Y-%m-%d").date()
+        except:
+            return date.max
 
-    filtered_requests.sort(key=lambda r: parse_eta_date(r.get("ETA Date", "")) or date.max)
+    filtered_requests = sorted(filtered_requests, key=parse_eta)
 
     if filtered_requests:
-        # --- Custom CSS for headers and overdue text ---
+        # --- Table Header Styling (make headers larger) ---
         st.markdown("""
         <style>
         .header-row {
@@ -553,8 +544,8 @@ elif st.session_state.page == "requests":
             "Type", "Ref#", "Description", "Qty", "Status",
             "Ordered Date", "ETA Date", "Shipping Method", "Encargado", ""
         ]
-        for col, title in zip(header_cols, headers):
-            col.markdown(f"<div class='header-row'>{title}</div>", unsafe_allow_html=True)
+        for col, header in zip(header_cols, headers):
+            col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
 
         # --- Today’s date for comparison ---
         today = date.today()
@@ -572,26 +563,28 @@ elif st.session_state.page == "requests":
                 cols[1].write(ref_val)
 
                 # 3) Description (join list if needed)
-                desc = req.get("Description", [])
-                desc_display = ", ".join(desc) if isinstance(desc, list) else str(desc)
+                desc_list = req.get("Description", [])
+                desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
                 cols[2].write(desc_display)
 
                 # 4) Quantity (join list if needed)
-                qty = req.get("Quantity", [])
-                if isinstance(qty, list):
-                    qty_display = ", ".join(str(x) for x in qty)
-                else:
-                    qty_display = str(qty)
+                qty_list = req.get("Quantity", [])
+                qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list := req.get("Quantity", []), list) else str(qty_list)
                 cols[3].write(qty_display)
 
                 # 5) Status badge + possibly “Overdue” below it
                 status_val = req.get("Status", "").upper()
                 status_html = format_status_badge(status_val)
 
-                raw_eta = req.get("ETA Date", "")
-                eta_date = parse_eta_date(raw_eta)
+                # Determine if this row is overdue:
+                eta_str = req.get("ETA Date", "")
+                try:
+                    eta_date = datetime.strptime(eta_str, "%Y-%m-%d").date()
+                except:
+                    eta_date = None
 
-                if eta_date is not None and eta_date < today and status_val != "READY":
+                if eta_date and eta_date < today and status_val != "READY":
+                    # Append a small red “⚠️ Overdue” line below the badge
                     status_html += "<div class='overdue-text'>⚠️ Overdue</div>"
 
                 cols[4].markdown(status_html, unsafe_allow_html=True)
@@ -600,7 +593,7 @@ elif st.session_state.page == "requests":
                 cols[5].write(req.get("Date", ""))
 
                 # 7) ETA Date
-                cols[6].write(raw_eta)
+                cols[6].write(eta_str)
 
                 # 8) Shipping Method
                 cols[7].write(req.get("Shipping Method", ""))
@@ -618,7 +611,7 @@ elif st.session_state.page == "requests":
 
     if st.button("⬅ Back to Home"):
         go_to("home")
-
+ 
 
 
 elif st.session_state.page == "detail":
