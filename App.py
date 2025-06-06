@@ -754,4 +754,4 @@ elif st.session_state.page == "detail":
             add_comment(index, st.session_state.user_name, new_message.strip())
             # Clear the input box and rerun so the new comment shows up
             st.session_state[f"new_msg_{index}"] = ""
-            st.experimental_rerun()
+            st.rerun()
