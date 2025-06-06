@@ -16,9 +16,9 @@ COMMENTS_FILE = "comments.json"
 
 # Pre‐defined username/passwords (for demo purposes)
 VALID_USERS = {
-    "andres": "password123",
-    "marcela": "pwd456",
-    "tito": "secret789"
+    "andres": "1",
+    "marcela": "1",
+    "tito": "1"
 }
 
 # Helper: Colored status badge
@@ -752,6 +752,6 @@ elif st.session_state.page == "detail":
     new_msg = st.chat_input("Type your message here…")
     if new_msg:
         add_comment(index, st.session_state.user_name, new_msg)
-        st.experimental_rerun()
+        st.rerun()
 
 
