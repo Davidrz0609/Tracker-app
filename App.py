@@ -615,8 +615,15 @@ elif st.session_state.page == "requests":
 # -------- REQUEST DETAILS / COMMENTS -------
 # -------------------------------------------
 elif st.session_state.page == "detail":
+    # ─────────────────────────────────────────────────────────────────────
+    #  "Request Details" PAGE (with WhatsApp‐style chat bubbles)
+    # ─────────────────────────────────────────────────────────────────────
+
     st.markdown("## 📂 Request Details")
-    st.markdown(f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to All Requests](#)", unsafe_allow_html=True)
+    st.markdown(
+        f"Logged in as: **{st.session_state.user_name}**  |  [🔙 Back to All Requests](#)",
+        unsafe_allow_html=True
+    )
     st.markdown("<hr>", unsafe_allow_html=True)
 
     index = st.session_state.selected_request
@@ -632,12 +639,19 @@ elif st.session_state.page == "detail":
     with st.container():
         st.markdown("### 📄 Order Information")
         col1, col2 = st.columns(2)
+
         with col1:
+            # Ref# / Order#
             order_number_val = request.get("Order#", "")
-            order_number = st.text_input("Ref#", value=order_number_val, key="detail_Order#")
+            order_number = st.text_input(
+                "Ref#",
+                value=order_number_val,
+                key="detail_Order#"
+            )
             if order_number != order_number_val:
                 updated_fields["Order#"] = order_number
 
+            # Dynamic rows for Description & Quantity
             desc_list = request.get("Description", [])
             qty_list = request.get("Quantity", [])
             num_rows = max(len(desc_list), len(qty_list), 1)
@@ -648,8 +662,16 @@ elif st.session_state.page == "detail":
                 cA, cB = st.columns(2)
                 desc_val = desc_list[i] if i < len(desc_list) else ""
                 qty_val = qty_list[i] if i < len(qty_list) else ""
-                new_desc = cA.text_input(f"Description #{i+1}", value=desc_val, key=f"detail_desc_{i}").strip()
-                new_qty_raw = cB.text_input(f"Quantity #{i+1}", value=str(qty_val), key=f"detail_qty_{i}").strip()
+                new_desc = cA.text_input(
+                    f"Description #{i+1}",
+                    value=desc_val,
+                    key=f"detail_desc_{i}"
+                ).strip()
+                new_qty_raw = cB.text_input(
+                    f"Quantity #{i+1}",
+                    value=str(qty_val),
+                    key=f"detail_qty_{i}"
+                ).strip()
                 try:
                     new_qty = int(float(new_qty_raw)) if new_qty_raw else ""
                 except:
@@ -661,38 +683,61 @@ elif st.session_state.page == "detail":
             if new_quantities != qty_list:
                 updated_fields["Quantity"] = new_quantities
 
+            # Status dropdown
             status_options = [" ", "PENDING", "ORDERED", "READY", "CANCELLED", "IN TRANSIT", "INCOMPLETE"]
             current_status = request.get("Status", " ")
             if current_status not in status_options:
                 current_status = " "
-            status = st.selectbox("Status", status_options, index=status_options.index(current_status), key="detail_Status")
+            status = st.selectbox(
+                "Status",
+                status_options,
+                index=status_options.index(current_status),
+                key="detail_Status"
+            )
             if status != current_status:
                 updated_fields["Status"] = status
 
         with col2:
+            # Tracking# / Invoice
             invoice_val = request.get("Invoice", "")
-            invoice = st.text_input("Tracking#", value=invoice_val, key="detail_Invoice")
+            invoice = st.text_input(
+                "Tracking#",
+                value=invoice_val,
+                key="detail_Invoice"
+            )
             if invoice != invoice_val:
                 updated_fields["Invoice"] = invoice
 
+            # Proveedor vs Cliente
             partner_label = "Proveedor" if is_purchase else "Cliente"
             partner_val = request.get(partner_label, "")
-            partner = st.text_input(partner_label, value=partner_val, key=f"detail_{partner_label}")
+            partner = st.text_input(
+                partner_label,
+                value=partner_val,
+                key=f"detail_{partner_label}"
+            )
             if partner != partner_val:
                 updated_fields[partner_label] = partner
 
+            # Método de Pago
             pago_val = request.get("Pago", " ")
-            pago = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"],
-                                index=[" ", "Wire", "Cheque", "Credito", "Efectivo"].index(pago_val),
-                                key="detail_Pago")
+            pago = st.selectbox(
+                "Método de Pago",
+                [" ", "Wire", "Cheque", "Credito", "Efectivo"],
+                index=[" ", "Wire", "Cheque", "Credito", "Efectivo"].index(pago_val),
+                key="detail_Pago"
+            )
             if pago != pago_val:
                 updated_fields["Pago"] = pago
 
+            # Encargado
             encargado_val = request.get("Encargado", " ")
-            encargado = st.selectbox("Encargado",
-                                     [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"],
-                                     index=[" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"].index(encargado_val),
-                                     key="detail_Encargado")
+            encargado = st.selectbox(
+                "Encargado",
+                [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"],
+                index=[" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"].index(encargado_val),
+                key="detail_Encargado"
+            )
             if encargado != encargado_val:
                 updated_fields["Encargado"] = encargado
 
@@ -702,20 +747,30 @@ elif st.session_state.page == "detail":
         col3, col4 = st.columns(2)
         with col3:
             date_val = request.get("Date", str(date.today()))
-            order_date = st.date_input("Order Date", value=pd.to_datetime(date_val), key="detail_Date")
+            order_date = st.date_input(
+                "Order Date",
+                value=pd.to_datetime(date_val),
+                key="detail_Date"
+            )
             if str(order_date) != date_val:
                 updated_fields["Date"] = str(order_date)
         with col4:
             eta_val = request.get("ETA Date", str(date.today()))
-            eta_date = st.date_input("ETA Date", value=pd.to_datetime(eta_val), key="detail_ETA")
+            eta_date = st.date_input(
+                "ETA Date",
+                value=pd.to_datetime(eta_val),
+                key="detail_ETA"
+            )
             if str(eta_date) != eta_val:
                 updated_fields["ETA Date"] = str(eta_date)
 
         ship_val = request.get("Shipping Method", " ")
-        shipping_method = st.selectbox("Shipping Method",
-                                       [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"],
-                                       index=[" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"].index(ship_val),
-                                       key="detail_Shipping")
+        shipping_method = st.selectbox(
+            "Shipping Method",
+            [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"],
+            index=[" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"].index(ship_val),
+            key="detail_Shipping"
+        )
         if shipping_method != ship_val:
             updated_fields["Shipping Method"] = shipping_method
 
@@ -736,22 +791,86 @@ elif st.session_state.page == "detail":
         if st.button("⬅ Back to All Requests", use_container_width=True):
             go_to("requests")
 
-    # ──────────── COMMENTS SECTION (CHAT‐STYLE) ────────────
+    # ─────────────────────────────────────────────────────────────────────
+    #  COMMENTS SECTION (WhatsApp‐style bubbles)
+    # ─────────────────────────────────────────────────────────────────────
+
+    # 1) Inject CSS for chat bubbles
+    st.markdown(
+        """
+        <style>
+        /* Incoming bubble (other users) */
+        .chat-bubble-in {
+            background: #E5E5EA;
+            color: #000;
+            padding: 8px 12px;
+            border-radius: 18px;
+            margin: 5px 0;
+            max-width: 60%;
+            float: left;
+            clear: both;
+        }
+        /* Outgoing bubble (logged‐in user) */
+        .chat-bubble-out {
+            background: #34B7F1;
+            color: #FFF;
+            padding: 8px 12px;
+            border-radius: 18px;
+            margin: 5px 0;
+            max-width: 60%;
+            float: right;
+            clear: both;
+        }
+        /* Clear float after each bubble */
+        .clearfix {
+            clear: both;
+        }
+        /* Timestamp style under each bubble */
+        .chat-timestamp {
+            font-size: 10px;
+            color: #888;
+            margin-top: 2px;
+            margin-bottom: 8px;
+            clear: both;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # 2) Render existing comments as bubbles
     st.markdown("### 💬 Comments (Chat‐Style)")
     existing_comments = st.session_state.comments.get(str(index), [])
 
-    # Display each existing comment with author & timestamp
     for comment in existing_comments:
         author = comment["author"]
         text = comment["text"]
-        when = comment.get("when", "")
-        st.markdown(f"**{author}**: {text}   _({when})_")
+        when = comment.get("when", "")  # e.g. "2025-06-06 17:12"
 
-    # Input for a new chat message
+        # Choose CSS class based on whether this comment belongs to the logged‐in user
+        if author == st.session_state.user_name:
+            # Outgoing message
+            st.markdown(
+                f'<div class="chat-bubble-out">{text}</div>'
+                f'<div class="chat-timestamp" style="text-align: right;">{when}</div>'
+                f'<div class="clearfix"></div>',
+                unsafe_allow_html=True
+            )
+        else:
+            # Incoming message
+            st.markdown(
+                f'<div class="chat-bubble-in"><strong>{author}</strong>: {text}</div>'
+                f'<div class="chat-timestamp" style="text-align: left;">{when}</div>'
+                f'<div class="clearfix"></div>',
+                unsafe_allow_html=True
+            )
+
+    # 3) Input for new message & Send button
+    st.markdown("---")
     new_message = st.text_input("Type your message here…", key=f"new_msg_{index}")
     if st.button("Send", key=f"send_{index}"):
         if new_message.strip():
             add_comment(index, st.session_state.user_name, new_message.strip())
-            # Clear the input box and rerun so the new comment shows up
+            # Clear the input and refresh so the new bubble appears immediately
             st.session_state[f"new_msg_{index}"] = ""
-            st.rerun()
+            st.experimental_rerun()
