@@ -801,7 +801,7 @@ elif st.session_state.page == "detail":
             if new_comment.strip():
                 add_comment(index, "User", new_comment.strip())
                 st.success("✅ Comment added.")
-                st.experimental_rerun()
+                st.rerun()
 
     else:
         st.error("Invalid request selected.")
