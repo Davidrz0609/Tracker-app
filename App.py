@@ -1096,7 +1096,7 @@ elif st.session_state.page == "detail":
                 attachment=None
             )
             st.session_state[text_input_key] = ""
-            st.experimental_rerun()
+            st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
