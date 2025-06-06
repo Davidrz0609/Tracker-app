@@ -18,11 +18,11 @@ def format_status_badge(status):
     status = status.upper()
     color_map = {
         "PENDING": "#f39c12",         # Orange
-        "READY": "#2ecc71",            # Green
-        "IN TRANSIT": "#3498db",       # Light Blue
-        "ORDERED": "#9b59b6",          # Purple
-        "INCOMPLETE": "#e67e22",       # Dark Orange
-        "CANCELLED": "#e74c3c",        # Red
+        "READY": "#2ecc71",           # Green
+        "IN TRANSIT": "#3498db",      # Light Blue
+        "ORDERED": "#9b59b6",         # Purple
+        "INCOMPLETE": "#e67e22",      # Dark Orange
+        "CANCELLED": "#e74c3c",       # Red
     }
     color = color_map.get(status, "#7f8c8d")  # Default: Gray
     return f"""
@@ -86,7 +86,7 @@ def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        # Re-index comments
+        # Re-index comments so keys remain 0..N-1
         st.session_state.comments = {
             str(i): st.session_state.comments.get(str(i), [])
             for i in range(len(st.session_state.requests))
@@ -96,7 +96,9 @@ def delete_request(index):
         st.success("🗑️ Request deleted successfully.")
         go_to("requests")
 
-# --- Home Page ---
+# -------------------------------------------
+# ---------- “Home” Page  -------------------
+# -------------------------------------------
 if st.session_state.page == "home":
     # --- Global Styling ---
     st.markdown("""
@@ -143,17 +145,20 @@ if st.session_state.page == "home":
     # --- Divider ---
     st.markdown("<hr style='margin: 2rem 0;'>", unsafe_allow_html=True)
 
-    # --- All Requests ---
+    # --- Button to view All Requests ---
     with st.container():
         if st.button("📋 View All Requests", use_container_width=True):
             go_to("requests")
 
+# -------------------------------------------
+# ------- “Purchase Request” Page ----------
+# -------------------------------------------
 elif st.session_state.page == "purchase":
     import pandas as pd
 
     st.markdown("## 💲 Purchase Request Form")
 
-    # --- Global Styles ---
+    # --- Global Styles for this page ---
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -173,7 +178,7 @@ elif st.session_state.page == "purchase":
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Initialize session‐state containers if not already set ---
+    # --- Track how many item rows we have ---
     if "purchase_item_rows" not in st.session_state:
         st.session_state.purchase_item_rows = 1
     st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
@@ -310,12 +315,15 @@ elif st.session_state.page == "purchase":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
+# -------------------------------------------
+# -------- “Sales Order Request” Page -------
+# -------------------------------------------
 elif st.session_state.page == "sales_order":
     import pandas as pd
 
     st.markdown("## 🛒 Sales Order Request Form")
 
-    # --- Global Styles ---
+    # --- Global Styles for this page ---
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -335,8 +343,7 @@ elif st.session_state.page == "sales_order":
     </style>
     """, unsafe_allow_html=True)
 
-    # ------------------------------------------------------------------
-    # Initialize session‐state containers if not already set
+    # --- Track how many item rows we have for invoices ---
     if "invoice_item_rows" not in st.session_state:
         st.session_state.invoice_item_rows = 1
     st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
@@ -472,8 +479,12 @@ elif st.session_state.page == "sales_order":
     with col_back:
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
+
+# -------------------------------------------
+# -------- “All Requests” Page  -------------
+# -------------------------------------------
 elif st.session_state.page == "requests":
-    # --- Auto-refresh every 5 seconds ---
+    # --- Auto-refresh every 1 second (to capture any new requests) ---
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
 
     # --- Re-load data from disk so we see the latest requests ---
@@ -496,7 +507,7 @@ elif st.session_state.page == "requests":
             ["All", "💲 Purchase", "🛒 Sales"]
         )
 
-    # --- Filter Logic ---
+    # --- Build a list of filtered requests ---
     filtered_requests = []
     for req in st.session_state.requests:
         matches_search = search_term.lower() in json.dumps(req).lower()
@@ -509,18 +520,41 @@ elif st.session_state.page == "requests":
             filtered_requests.append(req)
 
     # --- Sort by soonest ETA date (earliest first) ---
-    from datetime import datetime, date
+    from datetime import datetime, date as _date
 
     def parse_eta(req):
         eta_str = req.get("ETA Date", "")
         try:
             return datetime.strptime(eta_str, "%Y-%m-%d").date()
         except:
-            return date.max
+            return _date.max
 
     filtered_requests = sorted(filtered_requests, key=parse_eta)
 
     if filtered_requests:
+        # --- CSV EXPORT BUTTON ---
+        # We flatten any list‐fields (like Description, Quantity) into semicolon-separated text.
+        flattened = []
+        for req in filtered_requests:
+            flat_req = {}
+            for k, v in req.items():
+                if isinstance(v, list):
+                    # join list contents with semicolons
+                    flat_req[k] = ";".join(str(x) for x in v)
+                else:
+                    flat_req[k] = v
+            flattened.append(flat_req)
+
+        df_export = pd.DataFrame(flattened)
+        csv_data = df_export.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="📥 Export Filtered Requests to CSV",
+            data=csv_data,
+            file_name="requests_export.csv",
+            mime="text/csv"
+        )
+
         # --- Table Header Styling (make headers larger) ---
         st.markdown("""
         <style>
@@ -542,7 +576,7 @@ elif st.session_state.page == "requests":
         </style>
         """, unsafe_allow_html=True)
 
-        # --- Table Header ---
+        # --- Render Table Header ---
         header_cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
         headers = [
             "Type", "Ref#", "Description", "Qty", "Status",
@@ -551,15 +585,15 @@ elif st.session_state.page == "requests":
         for col, header in zip(header_cols, headers):
             col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
 
-        # --- Today’s date for comparison ---
-        today = date.today()
+        # --- Today’s date for overdue calculation ---
+        today = _date.today()
 
         # --- Table Rows ---
         for i, req in enumerate(filtered_requests):
             with st.container():
                 cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
 
-                # --- Determine if this row is overdue (only if not READY or CANCELLED) ---
+                # Determine if this row is overdue (only if not READY or CANCELLED)
                 status_val = req.get("Status", "").upper()
                 eta_str = req.get("ETA Date", "")
                 try:
@@ -626,12 +660,14 @@ elif st.session_state.page == "requests":
     if st.button("⬅ Back to Home"):
         go_to("home")
 
-
+# -------------------------------------------
+# -------- “Request Details” Page ----------
+# -------------------------------------------
 elif st.session_state.page == "detail":
     st.markdown("## 📂 Request Details")
     index = st.session_state.selected_request
 
-    # --- Global Styles ---
+    # --- Global Styles for detail page ---
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -800,7 +836,7 @@ elif st.session_state.page == "detail":
             if shipping_method != ship_val:
                 updated_fields["Shipping Method"] = shipping_method
 
-        # --- 3) Save, Delete, Back ---
+        # --- 3) Save, Delete, Back Buttons ---
         st.markdown("---")
         col_save, col_delete, col_back = st.columns([2, 1, 1])
         with col_save:
@@ -833,6 +869,7 @@ elif st.session_state.page == "detail":
 
     else:
         st.error("Invalid request selected.")
+
 
 
 
