@@ -552,7 +552,7 @@ elif st.session_state.page == "requests":
         # Drop unwanted columns if they slipped through
         df_export = df_export.drop(columns=["Attachments", "StatusHistory"], errors="ignore")
 
-        # Rename "Invoice" column to "Tracking Number"
+        # Rename "Invoice" column to "Tracking Number" (if you still want that in the CSV)
         df_export = df_export.rename(columns={"Invoice": "Tracking Number"})
 
         # Convert to CSV bytes and expose download button
@@ -623,8 +623,12 @@ elif st.session_state.page == "requests":
                     unsafe_allow_html=True
                 )
 
-                # 2) Ref#: prefer "Order#", but fall back to "Invoice"
-                ref_val = req.get("Order#", "") or req.get("Invoice", "")
+                # 2) Ref#: For purchases (Type == "💲"), use "Invoice" (PO#). Otherwise, use "Order#".
+                if req.get("Type") == "💲":
+                    ref_val = req.get("Invoice", "") or req.get("Order#", "")
+                else:
+                    ref_val = req.get("Order#", "") or req.get("Invoice", "")
+
                 cols[1].write(ref_val)
 
                 # 3) Description (join list if needed)
@@ -668,6 +672,7 @@ elif st.session_state.page == "requests":
 
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 # -------------------------------------------
 # -------- “Request Details” Page ----------
