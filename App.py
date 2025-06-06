@@ -533,7 +533,7 @@ elif st.session_state.page == "requests":
             color: #e74c3c;
             font-weight: 600;
             font-size: 14px;
-            margin-right: 6px;
+            margin-left: 6px;
             vertical-align: middle;
         }
         .type-icon {
@@ -597,11 +597,10 @@ elif st.session_state.page == "requests":
                     qty_display = str(qty_list)
                 cols[3].write(qty_display)
 
-                # 5) Status column: possibly show overdue icon then status badge
-                status_html = ""
+                # 5) Status column: show status badge, then possibly overdue icon to the right with tooltip
+                status_html = format_status_badge(status_val)
                 if is_overdue:
-                    status_html += "<span class='overdue-icon'>⚠️</span>"
-                status_html += format_status_badge(status_val)
+                    status_html += "<span class='overdue-icon' title='Overdue'>⚠️</span>"
                 cols[4].markdown(status_html, unsafe_allow_html=True)
 
                 # 6) Ordered Date
