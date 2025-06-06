@@ -983,28 +983,28 @@ elif st.session_state.page == "detail":
                         new_message.strip(),
                         attachment=None
                     )
-                    # Clear the text box only if the key already exists
-                    if text_input_key in st.session_state:
-                        st.session_state[text_input_key] = ""
+                    # Clear the text box
+                    st.session_state[text_input_key] = ""
                     st.rerun()
 
         with col_upload:
-            if st.button("Upload File", key=f"upload_file_{index}"):
-                if uploaded_file is not None:
-                    # Create a unique “safe” filename:
-                    timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
-                    safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
-                    save_path = os.path.join(UPLOADS_DIR, safe_filename)
-                    # Write the file’s bytes to disk:
-                    with open(save_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    # Record this upload as a comment with no text, just an attachment
-                    add_comment(
-                        index,
-                        st.session_state.user_name,
-                        text="",
-                        attachment=safe_filename
-                    )
-                    st.success(f"Uploaded: {uploaded_file.name}")
-                    st.rerun()
+            # Process the file immediately once it is chosen and the button is clicked
+            if uploaded_file is not None and st.button("Upload File", key=f"upload_file_{index}"):
+                # Create a unique “safe” filename:
+                timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+                safe_filename = f"{index}_{timestamp_str}_{uploaded_file.name}"
+                save_path = os.path.join(UPLOADS_DIR, safe_filename)
+                # Write the file’s bytes to disk:
+                with open(save_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                # Record this upload as a comment with no text, just an attachment
+                add_comment(
+                    index,
+                    st.session_state.user_name,
+                    text="",
+                    attachment=safe_filename
+                )
+                st.success(f"Uploaded: {uploaded_file.name}")
+                # Do NOT call st.rerun() here, to avoid the “value assignment not allowed” error
+
 
