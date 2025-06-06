@@ -24,9 +24,9 @@ if not os.path.exists(UPLOADS_DIR):
 
 # Example users (username: password). Replace or expand as needed.
 VALID_USERS = {
-    "andres": "password123",
-    "marcela": "pwd456",
-    "tito": "secret789"
+    "andres": "2002",
+    "marcela": "2002",
+    "tito": "2002"
 }
 
 # --- Helper: Colored Status Badge ---
