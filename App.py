@@ -600,7 +600,7 @@ elif st.session_state.page == "requests":
                 # 5) Status column: show status badge, then possibly overdue icon to the right with tooltip
                 status_html = format_status_badge(status_val)
                 if is_overdue:
-                    status_html += "<span class='overdue-icon' title='Overdue'>⚠️</span>"
+                    status_html += "<abbr title='Overdue'><span class='overdue-icon'>⚠️</span></abbr>"
                 cols[4].markdown(status_html, unsafe_allow_html=True)
 
                 # 6) Ordered Date
