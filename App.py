@@ -480,9 +480,6 @@ elif st.session_state.page == "sales_order":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
-# -------------------------------------------
-# -------- “All Requests” Page  -------------
-# -------------------------------------------
 elif st.session_state.page == "requests":
     # --- Auto-refresh every 1 second (to capture any new requests) ---
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
@@ -533,21 +530,31 @@ elif st.session_state.page == "requests":
 
     if filtered_requests:
         # --- CSV EXPORT BUTTON ---
-        # We flatten any list‐fields (like Description, Quantity) into semicolon-separated text.
+        # Build a flattened list of dicts—but skip "Attachments", "StatusHistory", and any comment/history keys:
         flattened = []
         for req in filtered_requests:
             flat_req = {}
             for k, v in req.items():
+                key_lower = k.lower()
+                if key_lower in ("attachments", "statushistory", "comments", "commentshistory"):
+                    continue
                 if isinstance(v, list):
-                    # join list contents with semicolons
                     flat_req[k] = ";".join(str(x) for x in v)
                 else:
                     flat_req[k] = v
             flattened.append(flat_req)
 
+        # Create DataFrame
         df_export = pd.DataFrame(flattened)
-        csv_data = df_export.to_csv(index=False).encode("utf-8")
 
+        # Drop unwanted columns if they slipped through
+        df_export = df_export.drop(columns=["Attachments", "StatusHistory"], errors="ignore")
+
+        # Rename "Invoice" column to "Tracking Number"
+        df_export = df_export.rename(columns={"Invoice": "Tracking Number"})
+
+        # Convert to CSV bytes and expose download button
+        csv_data = df_export.to_csv(index=False).encode("utf-8")
         st.download_button(
             label="📥 Export Filtered Requests to CSV",
             data=csv_data,
