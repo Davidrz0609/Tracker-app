@@ -736,22 +736,22 @@ elif st.session_state.page == "detail":
         if st.button("⬅ Back to All Requests", use_container_width=True):
             go_to("requests")
 
-    # ──────────── COMMENTS SECTION (CHAT STYLE) ────────────
-    st.markdown("### 💬 Comments (Chat)")
-    chat_key = f"chat_{index}"
+    # ──────────── COMMENTS SECTION (CHAT‐STYLE) ────────────
+    st.markdown("### 💬 Comments (Chat‐Style)")
+    existing_comments = st.session_state.comments.get(str(index), [])
 
-    # Render existing comments in chat format
-    for comment in st.session_state.comments.get(str(index), []):
+    # Display each existing comment with author & timestamp
+    for comment in existing_comments:
         author = comment["author"]
         text = comment["text"]
         when = comment.get("when", "")
-        # Each comment is shown with author name and timestamp
-        st.chat_message(author)(f"{text}   _(at {when})_")
+        st.markdown(f"**{author}**: {text}   _({when})_")
 
-    # Input area for a new comment
-    new_msg = st.chat_input("Type your message here…")
-    if new_msg:
-        add_comment(index, st.session_state.user_name, new_msg)
-        st.rerun()
-
-
+    # Input for a new chat message
+    new_message = st.text_input("Type your message here…", key=f"new_msg_{index}")
+    if st.button("Send", key=f"send_{index}"):
+        if new_message.strip():
+            add_comment(index, st.session_state.user_name, new_message.strip())
+            # Clear the input box and rerun so the new comment shows up
+            st.session_state[f"new_msg_{index}"] = ""
+            st.experimental_rerun()
