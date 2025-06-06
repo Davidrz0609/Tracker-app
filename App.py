@@ -532,30 +532,40 @@ elif st.session_state.page == "requests":
 
     if filtered_requests:
         # --- CSV EXPORT BUTTON ---
-        # Build a flattened list of dicts—but skip "Attachments", "StatusHistory", and any comment/history keys:
         flattened = []
         for req in filtered_requests:
             flat_req = {}
+
+            # Always include Type
+            flat_req["Type"] = req.get("Type", "")
+
+            # Determine Order# vs. Tracking Number based on Type
+            if req.get("Type") == "💲":
+                # For purchases: "Invoice" is the PO#, "Order#" is actually tracking
+                flat_req["Order#"] = req.get("Invoice", "")
+                flat_req["Tracking Number"] = req.get("Order#", "")
+            else:
+                # For sales: "Order#" is the sales order, "Invoice" field holds tracking
+                flat_req["Order#"] = req.get("Order#", "")
+                flat_req["Tracking Number"] = req.get("Invoice", "")
+
+            # Now include all other fields except the original "Order#" and "Invoice"
             for k, v in req.items():
                 key_lower = k.lower()
-                if key_lower in ("attachments", "statushistory", "comments", "commentshistory"):
+                if key_lower in ("order#", "invoice", "attachments", "statushistory", "comments", "commentshistory", "type"):
                     continue
+                # Flatten list‐typed fields into semicolon‐separated strings
                 if isinstance(v, list):
                     flat_req[k] = ";".join(str(x) for x in v)
                 else:
                     flat_req[k] = v
+
             flattened.append(flat_req)
 
-        # Create DataFrame
+        # Build DataFrame for CSV
         df_export = pd.DataFrame(flattened)
 
-        # Drop unwanted columns if they slipped through
-        df_export = df_export.drop(columns=["Attachments", "StatusHistory"], errors="ignore")
-
-        # Rename "Invoice" column to "Tracking Number" (if you still want that in the CSV)
-        df_export = df_export.rename(columns={"Invoice": "Tracking Number"})
-
-        # Convert to CSV bytes and expose download button
+        # Convert to CSV bytes
         csv_data = df_export.to_csv(index=False).encode("utf-8")
         st.download_button(
             label="📥 Export Filtered Requests to CSV",
@@ -623,12 +633,11 @@ elif st.session_state.page == "requests":
                     unsafe_allow_html=True
                 )
 
-                # 2) Ref#: For purchases (Type == "💲"), use "Invoice" (PO#). Otherwise, use "Order#".
+                # 2) Ref#: same logic as above
                 if req.get("Type") == "💲":
-                    ref_val = req.get("Invoice", "") or req.get("Order#", "")
+                    ref_val = req.get("Invoice", "")
                 else:
-                    ref_val = req.get("Order#", "") or req.get("Invoice", "")
-
+                    ref_val = req.get("Order#", "")
                 cols[1].write(ref_val)
 
                 # 3) Description (join list if needed)
