@@ -580,18 +580,29 @@ elif st.session_state.page == "requests":
 
             count = 0
             for _, row in df_import.iterrows():
+                # Safely parse Quantity column (always coerce to str before split)
+                raw_qty = row.get("Quantity", "")
+                if pd.isna(raw_qty) or not raw_qty:
+                    qty_list = []
+                else:
+                    qty_list = [int(x) for x in str(raw_qty).split(";") if x]
+
+                # Safely parse Description column
+                raw_desc = row.get("Description", "")
+                desc_list = str(raw_desc).split(";") if raw_desc else []
+
                 req = {
-                    "Type": row["Type"],
+                    "Type": row.get("Type", ""),
                     "Invoice": row.get("Order#", ""),
                     "Order#": row.get("Tracking Number", ""),
-                    "Description": row.get("Description", "").split(";") if row.get("Description") else [],
-                    "Quantity": [int(x) for x in row.get("Qty", "").split(";") if x] if row.get("Qty") else [],
+                    "Description": desc_list,
+                    "Quantity": qty_list,
                     "Status": row.get("Status", ""),
                     "Date": row.get("Ordered Date", ""),
                     "ETA Date": row.get("ETA Date", ""),
                     "Shipping Method": row.get("Shipping Method", ""),
                     "Encargado": row.get("Encargado", ""),
-                    # … include any other flattened fields here …
+                    # …any other fields you need…
                 }
                 add_request(req)
                 count += 1
@@ -646,12 +657,10 @@ elif st.session_state.page == "requests":
                 cols[1].write(ref_val)
 
                 # 3) Description
-                desc = req.get("Description",[])
-                cols[2].write(", ".join(desc) if isinstance(desc,list) else desc)
+                cols[2].write(", ".join(req.get("Description", [])))
 
                 # 4) Qty
-                qty = req.get("Quantity",[])
-                cols[3].write(", ".join(str(x) for x in qty) if isinstance(qty,list) else qty)
+                cols[3].write(", ".join(str(x) for x in req.get("Quantity", [])))
 
                 # 5) Status + overdue icon
                 status_val = req.get("Status","").upper()
@@ -694,6 +703,7 @@ elif st.session_state.page == "requests":
 
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 
 # -------------------------------------------
