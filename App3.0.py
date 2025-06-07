@@ -523,120 +523,205 @@ elif st.session_state.page == "sales_order":
         if st.button("⬅ Back to Home", use_container_width=True):
             go_to("home")
 
-# --- All Requests Page (Excel-backed) ---
 elif st.session_state.page == "requests":
-    # --- Auto-refresh every 1 second ---
-    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
+    st.markdown(f"## 📋 All Requests   |   Logged in as: **{st.session_state.user_name}**")
+    st.markdown("<hr>", unsafe_allow_html=True)
 
-    # --- Re-load data from Excel so we see the latest requests ---
+    # Auto‐refresh & reload
+    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
     load_data()
 
-    st.header("📋 All Requests")
-
-    # --- Filters ---
+    # ─────────── Filters ───────────
     col1, col2, col3 = st.columns([3, 2, 2])
-
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests...")
-
     with col2:
         status_filter = st.selectbox(
             "Status",
             ["All", "PENDING", "IN TRANSIT", "READY", "CANCELLED", "CONFIRMED", "INCOMPLETE"]
         )
-
     with col3:
         type_filter = st.selectbox(
             "Request type",
             ["All", "💲 Purchase", "🛒 Sales"]
         )
 
-    # --- Filter Logic ---
+    # Build filtered list
     filtered_requests = []
     for req in st.session_state.requests:
         matches_search = search_term.lower() in json.dumps(req).lower()
         matches_status = (status_filter == "All") or (req.get("Status", "").upper() == status_filter)
-        matches_type = (
-            type_filter == "All"
-            or req.get("Type") == type_filter.split()[0]
-        )
+        matches_type = (type_filter == "All" or req.get("Type") == type_filter.split()[0])
         if matches_search and matches_status and matches_type:
             filtered_requests.append(req)
 
-    # --- Sort the filtered requests by ETA Date (soonest first) ---
-    filtered_requests = sort_requests_by_eta(filtered_requests)
+    # Helper to sort by ETA
+    from datetime import datetime as _dt
+    def parse_eta(req):
+        eta_str = req.get("ETA Date", "")
+        try:
+            return _dt.strptime(eta_str, "%Y-%m-%d").date()
+        except:
+            return date.max
+
+    filtered_requests = sorted(filtered_requests, key=parse_eta)
 
     if filtered_requests:
-        # --- Table Header Styling (make headers larger) ---
+        # --- CSV Export button ---
+        flattened = []
+        for req in filtered_requests:
+            flat_req = {}
+            flat_req["Type"] = req.get("Type", "")
+            if req.get("Type") == "💲":
+                flat_req["Order#"] = req.get("Invoice", "")
+                flat_req["Tracking Number"] = req.get("Order#", "")
+            else:
+                flat_req["Order#"] = req.get("Order#", "")
+                flat_req["Tracking Number"] = req.get("Invoice", "")
+            for k, v in req.items():
+                key_lower = k.lower()
+                if key_lower in ("order#", "invoice", "attachments", "statushistory", "comments", "commentshistory", "type"):
+                    continue
+                flat_req[k] = ";".join(str(x) for x in v) if isinstance(v, list) else v
+            flattened.append(flat_req)
+
+        df_export = pd.DataFrame(flattened)
+        csv_data = df_export.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Export Filtered Requests to CSV",
+            data=csv_data,
+            file_name="requests_export.csv",
+            mime="text/csv"
+        )
+
+        # --- CSV Import button (append mode) ---
+        imported = st.file_uploader(
+            label="📤 Import Filtered Requests CSV",
+            type=["csv"],
+            help="Upload a previously exported CSV to append its rows"
+        )
+        if imported is not None:
+            df_import = pd.read_csv(imported)
+            st.markdown("**Preview of imported rows:**")
+            st.dataframe(df_import)
+
+            count = 0
+            for _, row in df_import.iterrows():
+                req = {
+                    "Type": row["Type"],
+                    "Invoice": row.get("Order#", ""),
+                    "Order#": row.get("Tracking Number", ""),
+                    "Description": row.get("Description", "").split(";") if row.get("Description") else [],
+                    "Quantity": [int(x) for x in row.get("Qty", "").split(";") if x] if row.get("Qty") else [],
+                    "Status": row.get("Status", ""),
+                    "Date": row.get("Ordered Date", ""),
+                    "ETA Date": row.get("ETA Date", ""),
+                    "Shipping Method": row.get("Shipping Method", ""),
+                    "Encargado": row.get("Encargado", ""),
+                    # … include any other flattened fields here …
+                }
+                add_request(req)
+                count += 1
+
+            st.success(f"✅ Appended {count} requests to the table.")
+
+        # --- Table styling ---
         st.markdown("""
         <style>
         .header-row {
             font-weight: bold;
-            font-size: 18px;        /* increased font size */
+            font-size: 18px;
             padding: 0.5rem 0;
+        }
+        .overdue-icon {
+            color: #e74c3c;
+            font-weight: 600;
+            font-size: 14px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        .type-icon {
+            font-size: 18px;
         }
         </style>
         """, unsafe_allow_html=True)
 
-        # --- Table Header ---
-        header_cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
+        # ─────────── Table header ───────────
+        header_cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1, 1])
         headers = [
             "Type", "Ref#", "Description", "Qty", "Status",
-            "Ordered Date", "ETA Date", "Shipping Method", "Encargado", ""
+            "Ordered Date", "ETA Date", "Shipping Method", "Encargado",
+            "",  # view
+            ""   # delete
         ]
         for col, header in zip(header_cols, headers):
             col.markdown(f"<div class='header-row'>{header}</div>", unsafe_allow_html=True)
 
-        # --- Table Rows ---
+        today = date.today()
         for i, req in enumerate(filtered_requests):
             with st.container():
-                cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1])
+                cols = st.columns([1, 2, 3, 1, 2, 2, 2, 2, 2, 1, 1])
 
-                # 1) Type (icon)
-                cols[0].write(req.get("Type", ""))
-
-                # 2) Ref#: prefer "Order#", but fall back to "Invoice"
-                ref_val = req.get("Order#", "") or req.get("Invoice", "")
-                cols[1].write(ref_val)
-
-                # 3) Description (join list if needed)
-                desc_list = req.get("Description", [])
-                desc_display = ", ".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
-                cols[2].write(desc_display)
-
-                # 4) Quantity (join list if needed)
-                qty_list = req.get("Quantity", [])
-                qty_display = ", ".join([str(q) for q in qty_list]) if isinstance(qty_list := req.get("Quantity", []), list) else str(qty_list)
-                cols[3].write(qty_display)
-
-                # 5) Status badge
-                cols[4].markdown(
-                    format_status_badge(req.get("Status", "")),
+                # 1) Type
+                cols[0].markdown(
+                    f"<span class='type-icon'>{req.get('Type','')}</span>",
                     unsafe_allow_html=True
                 )
 
+                # 2) Ref#
+                ref_val = req.get("Invoice","") if req.get("Type")=="💲" else req.get("Order#","")
+                cols[1].write(ref_val)
+
+                # 3) Description
+                desc = req.get("Description",[])
+                cols[2].write(", ".join(desc) if isinstance(desc,list) else desc)
+
+                # 4) Qty
+                qty = req.get("Quantity",[])
+                cols[3].write(", ".join(str(x) for x in qty) if isinstance(qty,list) else qty)
+
+                # 5) Status + overdue icon
+                status_val = req.get("Status","").upper()
+                eta_str = req.get("ETA Date","")
+                try:
+                    eta_date = _dt.strptime(eta_str, "%Y-%m-%d").date()
+                except:
+                    eta_date = None
+                is_overdue = eta_date and eta_date < today and status_val not in ("READY","CANCELLED")
+                status_html = format_status_badge(status_val)
+                if is_overdue:
+                    status_html += "<abbr title='Overdue'><span class='overdue-icon'>⚠️</span></abbr>"
+                cols[4].markdown(status_html, unsafe_allow_html=True)
+
                 # 6) Ordered Date
-                cols[5].write(req.get("Date", ""))
+                cols[5].write(req.get("Date",""))
 
                 # 7) ETA Date
-                cols[6].write(req.get("ETA Date", ""))
+                cols[6].write(eta_str)
 
                 # 8) Shipping Method
-                cols[7].write(req.get("Shipping Method", ""))
+                cols[7].write(req.get("Shipping Method",""))
 
                 # 9) Encargado
-                cols[8].write(req.get("Encargado", ""))
+                cols[8].write(req.get("Encargado",""))
 
-                # 10) “View” button → go to detail
+                # 10) View button
                 if cols[9].button("🔍", key=f"view_{i}"):
                     full_index = st.session_state.requests.index(req)
                     st.session_state.selected_request = full_index
                     go_to("detail")
+
+                # 11) Delete button
+                if cols[10].button("❌", key=f"delete_{i}"):
+                    full_index = st.session_state.requests.index(req)
+                    delete_request(full_index)
+
     else:
         st.warning("No matching requests found.")
 
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 # --- Detail Page ---
 elif st.session_state.page == "detail":
