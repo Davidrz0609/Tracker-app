@@ -884,7 +884,7 @@ elif st.session_state.page == "detail":
             if msg.strip():
                 add_comment(index, st.session_state.user_name, msg.strip(), attachment=None)
                 st.session_state[key] = ""
-                st.experimental_rerun()
+                st.rerun()
 
         text_key = f"new_msg_{index}"
         st.text_input("Type your message here…", key=text_key,
