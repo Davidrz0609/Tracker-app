@@ -905,6 +905,6 @@ elif st.session_state.page == "detail":
                 with open(save_path, "wb") as f: f.write(uploaded.getbuffer())
                 add_comment(index, st.session_state.user_name, text="", attachment=fname)
                 st.success(f"Uploaded: {uploaded.name}")
-                st.experimental_rerun()
+                st.rerun()
     # End of detail page
 
