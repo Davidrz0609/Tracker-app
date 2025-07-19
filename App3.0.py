@@ -328,12 +328,166 @@ elif st.session_state.page == "requests":
     # ─── PURCHASE ORDER OVERLAY ────────────────────────────────────
     @st.dialog("💲 New Purchase Order", width="large")
     def purchase_order_dialog():
-        # … your existing code unchanged …
+        from datetime import date
+        if "purchase_item_rows" not in st.session_state:
+            st.session_state.purchase_item_rows = 1
+
+        # Order info
+        col1, col2 = st.columns(2)
+        with col1:
+            po_number = st.text_input("Purchase Order#", "")
+            status     = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"])
+            encargado  = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"])
+        with col2:
+            order_number = st.text_input("Tracking# (optional)", "")
+            proveedor     = st.text_input("Proveedor", "")
+            pago          = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"])
+
+        # Items
+        st.markdown("### 🧾 Items to Order")
+        descriptions, quantities = [], []
+        for i in range(st.session_state.purchase_item_rows):
+            cA, cB = st.columns(2)
+            descriptions.append(cA.text_input(f"Description #{i+1}", key=f"po_desc_{i}"))
+            quantities.append(cB.text_input(f"Quantity    #{i+1}", key=f"po_qty_{i}"))
+
+        c_add, c_rem = st.columns([1,1])
+        if c_add.button("➕ Add another item", key="add_purchase"):
+            st.session_state.purchase_item_rows += 1
+            st.rerun()
+        if c_rem.button("❌ Remove last item", key="remove_purchase") and st.session_state.purchase_item_rows > 1:
+            st.session_state.purchase_item_rows -= 1
+            st.rerun()
+
+        # Shipping
+        st.markdown("### 🚚 Shipping Information")
+        col3, col4 = st.columns(2)
+        with col3:
+            order_date = st.date_input("Order Date", value=date.today())
+        with col4:
+            eta_date = st.date_input("ETA Date")
+        shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"])
+
+        st.markdown("---")
+        col_submit, col_cancel = st.columns([2,1])
+        with col_submit:
+            if st.button("✅ Submit Purchase Request", use_container_width=True):
+                cleaned_desc = [d.strip() for d in descriptions if d.strip()]
+                cleaned_qty  = []
+                for q in quantities:
+                    q = q.strip()
+                    if q:
+                        try:
+                            cleaned_qty.append(int(float(q)))
+                        except:
+                            cleaned_qty.append(q)
+                if not cleaned_desc or not cleaned_qty or status == " " or encargado == " ":
+                    st.error("❗ Please complete required fields")
+                else:
+                    add_request({
+                        "Type": "💲",
+                        "Invoice": po_number,
+                        "Order#": order_number,
+                        "Date": str(order_date),
+                        "Status": status,
+                        "Shipping Method": shipping_method,
+                        "ETA Date": str(eta_date),
+                        "Description": cleaned_desc,
+                        "Quantity": cleaned_qty,
+                        "Proveedor": proveedor,
+                        "Encargado": encargado,
+                        "Pago": pago
+                    })
+                    st.success("✅ Purchase request submitted.")
+                    st.session_state.purchase_item_rows = 1
+                    st.session_state.show_new_po = False
+                    st.rerun()
+        with col_cancel:
+            if st.button("❌ Cancel", use_container_width=True):
+                st.session_state.show_new_po = False
+                st.rerun()
 
     # ─── SALES ORDER OVERLAY ───────────────────────────────────────
     @st.dialog("🛒 New Sales Order", width="large")
     def sales_order_dialog():
-        # … your existing code unchanged …
+        from datetime import date
+        if "invoice_item_rows" not in st.session_state:
+            st.session_state.invoice_item_rows = 1
+
+        # Order info
+        col1, col2 = st.columns(2)
+        with col1:
+            order_number       = st.text_input("Ref# (optional)", "")
+            status             = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"])
+            encargado          = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"])
+        with col2:
+            sales_order_number = st.text_input("Tracking# (optional)", "")
+            cliente            = st.text_input("Cliente", "")
+            pago               = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"])
+
+        # Items
+        st.markdown("### 🧾 Items to Invoice")
+        descriptions, quantities = [], []
+        for i in range(st.session_state.invoice_item_rows):
+            cA, cB = st.columns(2)
+            descriptions.append(cA.text_input(f"Description #{i+1}", key=f"so_desc_{i}"))
+            quantities.append(cB.text_input(f"Quantity    #{i+1}", key=f"so_qty_{i}"))
+
+        c_add, c_rem = st.columns([1,1])
+        if c_add.button("➕ Add another item", key="add_invoice"):
+            st.session_state.invoice_item_rows += 1
+            st.rerun()
+        if c_rem.button("❌ Remove last item", key="remove_invoice") and st.session_state.invoice_item_rows > 1:
+            st.session_state.invoice_item_rows -= 1
+            st.rerun()
+
+        # Shipping
+        st.markdown("### 🚚 Shipping Information")
+        col3, col4 = st.columns(2)
+        with col3:
+            order_date = st.date_input("Order Date", value=date.today())
+        with col4:
+            eta_date = st.date_input("ETA Date")
+        shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"])
+
+        st.markdown("---")
+        col_submit, col_cancel = st.columns([2,1])
+        with col_submit:
+            if st.button("✅ Submit Sales Order", use_container_width=True):
+                cleaned_desc = [d.strip() for d in descriptions if d.strip()]
+                cleaned_qty  = []
+                for q in quantities:
+                    q = q.strip()
+                    if q:
+                        try:
+                            cleaned_qty.append(int(float(q)))
+                        except:
+                            cleaned_qty.append(q)
+                if not cleaned_desc or not cleaned_qty or status == " " or encargado == " ":
+                    st.error("❗ Please complete required fields")
+                else:
+                    add_request({
+                        "Type": "🛒",
+                        "Order#": order_number,
+                        "Invoice": sales_order_number,
+                        "Date": str(order_date),
+                        "Status": status,
+                        "Shipping Method": shipping_method,
+                        "ETA Date": str(eta_date),
+                        "Description": cleaned_desc,
+                        "Quantity": cleaned_qty,
+                        "Cliente": cliente,
+                        "Encargado": encargado,
+                        "Pago": pago
+                    })
+                    st.success("✅ Sales order submitted.")
+                    st.session_state.invoice_item_rows = 1
+                    st.session_state.show_new_so = False
+                    st.rerun()
+        with col_cancel:
+            if st.button("❌ Cancel", use_container_width=True):
+                st.session_state.show_new_so = False
+                st.rerun()
 
     # ─── HEADER + PAGE TITLE + REFRESH ─────────────────────────────
     st.markdown(f"# 📋 All Purchase/Sales Orders")
@@ -379,47 +533,44 @@ elif st.session_state.page == "requests":
 
     filtered_requests = sorted(filtered_requests, key=parse_eta)
 
-    # ─── PREPARE EXPORT DF & ALWAYS-VISIBLE BUTTONS ───────────────
-    # (even if filtered_requests is empty, df_export will just be an empty table)
-    flat = []
-    for req in filtered_requests:
-        row = {"Type": req["Type"]}
-        if req["Type"] == "💲":
-            row["Ref#"]      = req.get("Invoice", "")
-            row["Tracking#"] = req.get("Order#", "")
-        else:
-            row["Ref#"]      = req.get("Order#", "")
-            row["Tracking#"] = req.get("Invoice", "")
-        for k, v in req.items():
-            kl = k.lower()
-            if kl in ("order#", "invoice", "comments", "statushistory", "attachments", "type"):
-                continue
-            row[k] = ";".join(map(str, v)) if isinstance(v, list) else v
-        flat.append(row)
-
-    df_export = pd.DataFrame(flat)
-
-    # ─── EXPORT + NEW PO + NEW SO BUTTONS (ALWAYS VISIBLE) ───────
-    col_export, col_po, col_so = st.columns([3,1,1])
-    with col_export:
-        st.download_button(
-            "📥 Export Filtered Requests to CSV",
-            df_export.to_csv(index=False).encode("utf-8"),
-            "requests_export.csv",
-            "text/csv",
-            use_container_width=True
-        )
-    with col_po:
-        if st.button("💲 New Purchase Order", use_container_width=True):
-            st.session_state.show_new_po = True
-            st.rerun()
-    with col_so:
-        if st.button("🛒 New Sales Order", use_container_width=True):
-            st.session_state.show_new_so = True
-            st.rerun()
-
-    # ─── TABLE OR WARNING ──────────────────────────────────────────
     if filtered_requests:
+        # ─── ACTIONS ROW (EXPORT + NEW PO + NEW SO) ───────────────────
+        flat = []
+        for req in filtered_requests:
+            row = {"Type": req["Type"]}
+            if req["Type"] == "💲":
+                row["Ref#"] = req.get("Invoice", "")
+                row["Tracking#"] = req.get("Order#", "")
+            else:
+                row["Ref#"] = req.get("Order#", "")
+                row["Tracking#"] = req.get("Invoice", "")
+            for k, v in req.items():
+                kl = k.lower()
+                if kl in ("order#", "invoice", "comments", "statushistory", "attachments", "type"):
+                    continue
+                row[k] = ";".join(map(str, v)) if isinstance(v, list) else v
+            flat.append(row)
+
+        # ─── EXPORT + NEW PO + NEW SO BUTTONS ───────────────────────
+        df_export = pd.DataFrame(flat)
+        col_export, col_po, col_so = st.columns([3,1,1])
+        with col_export:
+            st.download_button(
+                "📥 Export Filtered Requests to CSV",
+                df_export.to_csv(index=False).encode("utf-8"),
+                "requests_export.csv",
+                "text/csv",
+                use_container_width=True
+            )
+        with col_po:
+            if st.button("💲 New Purchase Order", use_container_width=True):
+                st.session_state.show_new_po = True
+                st.rerun()
+        with col_so:
+            if st.button("🛒 New Sales Order", use_container_width=True):
+                st.session_state.show_new_so = True
+                st.rerun()
+
         # ─── TABLE STYLING ──────────────────────────────────────────
         st.markdown("""
         <style>
@@ -482,6 +633,7 @@ elif st.session_state.page == "requests":
             with cols[10]:
                 a1, a2 = st.columns([1,1])
                 if a1.button("🔍", key=f"view_{i}"):
+                    # mark as read for this user
                     for c in comments_list:
                         if c.get("author") != user and user not in c["read_by"]:
                             c["read_by"].append(user)
@@ -490,12 +642,14 @@ elif st.session_state.page == "requests":
                     go_to("detail")
                 if a2.button("❌", key=f"delete_{i}"):
                     delete_request(idx)
+
     else:
         st.warning("No matching requests found.")
 
     st.markdown("---")
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 ####
 
