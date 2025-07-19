@@ -974,7 +974,6 @@ elif st.session_state.page == "req_list":
                         "Fecha": str(dt),
                         "Status": stt
                     })
-                    # initialize comments store for this req
                     new_idx = len(st.session_state.requests) - 1
                     st.session_state.comments[str(new_idx)] = []
                     save_data()
@@ -991,9 +990,9 @@ elif st.session_state.page == "req_list":
     st.markdown("# 📝 Requerimientos Clientes")
     st.markdown("<hr>", unsafe_allow_html=True)
     _ = st_autorefresh(interval=1000, limit=None, key="req_list_refresh")
-
     load_data()
 
+    # ─── FILTERS ───────────────────────────────────────────────────
     col1, col2 = st.columns([3,1])
     search_term   = col1.text_input("Search",    placeholder="Search requirements...")
     status_filter = col2.selectbox("Status", ["All","OPEN","CLOSED"], key="req_list_status")
@@ -1007,42 +1006,49 @@ elif st.session_state.page == "req_list":
     reqs = [
         r for r in st.session_state.requests
         if r.get("Type")=="📑"
-        and (search_term.lower() in str(r).lower())
-        and (status_filter=="All" or r.get("Status","OPEN")==status_filter)
+           and (search_term.lower() in str(r).lower())
+           and (status_filter=="All" or r.get("Status","OPEN")==status_filter)
     ]
     reqs = sorted(reqs, key=lambda r: (r.get("Status","OPEN")!="OPEN", parse_fecha(r)))
 
+    # ─── EXPORT + NEW + NAV ROW (always visible) ─────────────────
+    flat = []
+    for r in reqs:
+        for itm in r.get("Items", []):
+            flat.append({
+                "Type":         r["Type"],
+                "Description":  itm["Description"],
+                "Target Price": itm["Target Price"],
+                "Qty":          itm["QTY"],
+                "Vendedor":     r.get("Vendedor Encargado",""),
+                "Comprador":    r.get("Comprador Encargado",""),
+                "Status":       r.get("Status","OPEN"),
+                "Date":         r.get("Fecha","")
+            })
+    df_export = pd.DataFrame(flat)
+
+    col_export, col_new, col_all = st.columns([3,1,1])
+    with col_export:
+        st.download_button(
+            "📥 Export Filtered Requests to CSV",
+            df_export.to_csv(index=False).encode("utf-8"),
+            "req_requests.csv", "text/csv",
+            use_container_width=True
+        )
+    with col_new:
+        if st.button("➕ New Requirement", use_container_width=True, key="nav_new_req"):
+            st.session_state.show_new_req = True
+            st.rerun()
+    with col_all:
+        if st.button("📋 All Purchase/Sales Orders", use_container_width=True, key="nav_all_req"):
+            st.session_state.page = "requests"
+            st.rerun()
+
+    st.markdown("---")
+
+    # ─── TABLE OR EMPTY MESSAGE ──────────────────────────────────
     if reqs:
-        flat = []
-        for r in reqs:
-            for itm in r.get("Items", []):
-                flat.append({
-                    "Type":         r["Type"],
-                    "Description":  itm["Description"],
-                    "Target Price": itm["Target Price"],
-                    "Qty":          itm["QTY"],
-                    "Vendedor":     r.get("Vendedor Encargado",""),
-                    "Comprador":    r.get("Comprador Encargado",""),
-                    "Status":       r.get("Status","OPEN"),
-                    "Date":         r.get("Fecha",""),
-                    "_req_obj":     r
-                })
-
-        df_export = pd.DataFrame([{k:v for k,v in row.items() if not k.startswith("_")} for row in flat])
-        col_export, col_new, col_all = st.columns([3,1,1])
-        with col_export:
-            st.download_button("📥 Export Filtered Requests to CSV",
-                               df_export.to_csv(index=False).encode("utf-8"),
-                               "req_requests.csv","text/csv", use_container_width=True)
-        with col_new:
-            if st.button("➕ New Requirement", key="nav_new_req", use_container_width=True):
-                st.session_state.show_new_req = True
-                st.rerun()
-        with col_all:
-            if st.button("📋 All Purchase/Sales Orders", key="nav_all_req", use_container_width=True):
-                st.session_state.page = "requests"
-                st.rerun()
-
+        # show dialog if requested
         if st.session_state.show_new_req:
             new_req_dialog()
 
@@ -1061,60 +1067,41 @@ elif st.session_state.page == "req_list":
             c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
 
         user = st.session_state.user_name
+        for i, r in enumerate(reqs):
+            # flatten one row at a time
+            for itm in r.get("Items", []):
+                idx = st.session_state.requests.index(r)
+                cols = st.columns([0.5,0.5,1,1,1,1,1,1,1,1])
+                comments_list = st.session_state.comments.get(str(idx), [])
+                for c in comments_list:
+                    c.setdefault("read_by", [])
+                    c.setdefault("author", "")
+                unread_cnt = sum(1 for c in comments_list if user not in c["read_by"] and c["author"] != user)
 
-        for i, row in enumerate(flat):
-            cols = st.columns([0.5,0.5,1,1,1,1,1,1,1,1])
-            idx  = st.session_state.requests.index(row["_req_obj"])
-            comments_list = st.session_state.comments.get(str(idx), [])
+                cols[0].markdown(f"<span class='status-open'>💬{unread_cnt}</span>" if unread_cnt>0 else "", unsafe_allow_html=True)
+                cols[1].markdown(f"<span class='type-icon'>{r['Type']}</span>", unsafe_allow_html=True)
+                cols[2].write(itm["Description"])
+                cols[3].write(f\"${itm['Target Price']}\")
+                cols[4].write(str(itm["QTY"]))
+                cols[5].write(r.get("Vendedor Encargado",""))
+                cols[6].write(r.get("Comprador Encargado",""))
+                status_html = "<span class='status-open'>OPEN</span>" if r["Status"]=="OPEN" else "<span class='status-closed'>CLOSED</span>"
+                cols[7].markdown(status_html, unsafe_allow_html=True)
+                cols[8].write(r.get("Fecha",""))
 
-            # ensure read_by list exists on each comment
-            for c in comments_list:
-                c.setdefault("read_by", [])
-                c.setdefault("author", "")
-
-            # only count unread _other_ users’ comments
-            unread_cnt = sum(
-                1 for c in comments_list
-                if user not in c["read_by"]
-                   and c["author"] != user
-            )
-
-            # 💬 unread badge
-            cols[0].markdown(
-                f"<span class='status-open'>💬{unread_cnt}</span>"
-                if unread_cnt>0 else "",
-                unsafe_allow_html=True
-            )
-
-            cols[1].markdown(f"<span class='type-icon'>{row['Type']}</span>", unsafe_allow_html=True)
-            cols[2].write(row['Description'])
-            cols[3].write(f"${row['Target Price']}")
-            cols[4].write(str(row['Qty']))
-            cols[5].write(row['Vendedor'])
-            cols[6].write(row['Comprador'])
-            cols[7].markdown(
-                "<span class='status-open'>OPEN</span>" if row['Status']=="OPEN"
-                else "<span class='status-closed'>CLOSED</span>",
-                unsafe_allow_html=True
-            )
-            cols[8].write(row['Date'])
-
-            with cols[9]:
-                a1, a2 = st.columns([1,1])
-                if a1.button("🔍", key=f"view_{i}", use_container_width=True):
-                    # mark read for this user only on _other_ comments
-                    for c in comments_list:
-                        if c["author"] != user and user not in c["read_by"]:
-                            c["read_by"].append(user)
-                    save_data()
-                    st.session_state.selected_request = idx
-                    st.session_state.page = "req_detail"
-                    st.rerun()
-
-                if a2.button("❌", key=f"del_{i}", use_container_width=True):
-                    delete_request(idx)
-                    st.rerun()
-
+                with cols[9]:
+                    a1, a2 = st.columns([1,1])
+                    if a1.button("🔍", key=f"view_{idx}_{itm['Description']}", use_container_width=True):
+                        for c in comments_list:
+                            if c["author"] != user and user not in c["read_by"]:
+                                c["read_by"].append(user)
+                        save_data()
+                        st.session_state.selected_request = idx
+                        st.session_state.page = "req_detail"
+                        st.rerun()
+                    if a2.button("❌", key=f"del_{idx}_{itm['Description']}", use_container_width=True):
+                        delete_request(idx)
+                        st.rerun()
     else:
         st.info("No hay requerimientos que coincidan.")
 
@@ -1122,6 +1109,7 @@ elif st.session_state.page == "req_list":
     if st.button("⬅ Back to Home", key="req_list_back"):
         st.session_state.page = "home"
         st.rerun()
+
 
 ########## 
 
