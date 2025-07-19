@@ -1048,7 +1048,6 @@ elif st.session_state.page == "req_list":
 
     # ─── TABLE OR EMPTY MESSAGE ──────────────────────────────────
     if reqs:
-        # show dialog if requested
         if st.session_state.show_new_req:
             new_req_dialog()
 
@@ -1067,10 +1066,9 @@ elif st.session_state.page == "req_list":
             c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
 
         user = st.session_state.user_name
-        for i, r in enumerate(reqs):
-            # flatten one row at a time
+        for r in reqs:
+            idx = st.session_state.requests.index(r)
             for itm in r.get("Items", []):
-                idx = st.session_state.requests.index(r)
                 cols = st.columns([0.5,0.5,1,1,1,1,1,1,1,1])
                 comments_list = st.session_state.comments.get(str(idx), [])
                 for c in comments_list:
@@ -1081,7 +1079,7 @@ elif st.session_state.page == "req_list":
                 cols[0].markdown(f"<span class='status-open'>💬{unread_cnt}</span>" if unread_cnt>0 else "", unsafe_allow_html=True)
                 cols[1].markdown(f"<span class='type-icon'>{r['Type']}</span>", unsafe_allow_html=True)
                 cols[2].write(itm["Description"])
-                cols[3].write(f\"${itm['Target Price']}\")
+                cols[3].write(f"${itm['Target Price']}")  # <-- fixed here
                 cols[4].write(str(itm["QTY"]))
                 cols[5].write(r.get("Vendedor Encargado",""))
                 cols[6].write(r.get("Comprador Encargado",""))
@@ -1109,6 +1107,7 @@ elif st.session_state.page == "req_list":
     if st.button("⬅ Back to Home", key="req_list_back"):
         st.session_state.page = "home"
         st.rerun()
+
 
 
 ########## 
