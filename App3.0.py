@@ -219,11 +219,7 @@ if st.session_state.page == "home":
             st.session_state.page = "requests"
             st.rerun() 
 
-# ──────────────────────────────────────────────────────────────────────
-# --------------- STANDALONE SUMMARY PAGE ----------------
-# ──────────────────────────────────────────────────────────────────────
-elif st.session_state.page == "summary":
-    render_summary(show_back_button=True)
+
 
 
 #####
