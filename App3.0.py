@@ -489,89 +489,75 @@ elif st.session_state.page == "requests":
                 st.session_state.show_new_so = False
                 st.rerun()
 
-    # ─── HEADER + PAGE TITLE + REFRESH ─────────────────────────────
-    st.markdown(f"# 📋 All Purchase/Sales Orders")
+    # ─── HEADER + PAGE TITLE + AUTO-REFRESH ────────────────────────
+    st.markdown("# 📋 All Purchase/Sales Orders")
     st.markdown("---")
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
     load_data()
 
-    # ─── FIRE OVERLAYS IF REQUESTED ───────────────────────────────
-    if st.session_state.show_new_po:
-        purchase_order_dialog()
-    if st.session_state.show_new_so:
-        sales_order_dialog()
-
-    # ─── FILTERS ─────────────────────────────────────────────────
+    # ─── FILTERS ───────────────────────────────────────────────────
     col1, col2, col3 = st.columns([3,2,2])
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests…")
     with col2:
-        status_filter = st.selectbox(
-            "Status",
-            ["All", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"]
-        )
+        status_filter = st.selectbox("Status", ["All","COMPLETE","READY","CANCELLED","IN TRANSIT"])
     with col3:
-        type_filter = st.selectbox(
-            "Request type",
-            ["All", "💲 Purchase", "🛒 Sales"]
-        )
+        type_filter = st.selectbox("Request type", ["All","💲 Purchase","🛒 Sales"])
 
     # ─── BUILD & SORT FILTERED_LIST ────────────────────────────────
     filtered_requests = [
         r for r in st.session_state.requests
         if r.get("Type") != "📑"
            and search_term.lower() in json.dumps(r).lower()
-           and (status_filter == "All" or r.get("Status", "").upper() == status_filter)
-           and (type_filter == "All" or r.get("Type") == type_filter.split()[0])
+           and (status_filter=="All" or r.get("Status","").upper()==status_filter)
+           and (type_filter=="All" or r.get("Type")==type_filter.split()[0])
     ]
-
     def parse_eta(r):
         try:
             return datetime.strptime(r["ETA Date"], "%Y-%m-%d").date()
         except:
             return date.max
-
     filtered_requests = sorted(filtered_requests, key=parse_eta)
 
+    # ─── EXPORT + NEW PO + NEW SO BUTTONS (ALWAYS VISIBLE) ─────────
+    flat = []
+    for req in filtered_requests:
+        row = {"Type": req["Type"]}
+        if req["Type"] == "💲":
+            row["Ref#"]      = req.get("Invoice", "")
+            row["Tracking#"] = req.get("Order#", "")
+        else:
+            row["Ref#"]      = req.get("Order#", "")
+            row["Tracking#"] = req.get("Invoice", "")
+        for k,v in req.items():
+            kl = k.lower()
+            if kl in ("order#","invoice","comments","statushistory","attachments","type"):
+                continue
+            row[k] = ";".join(map(str,v)) if isinstance(v,list) else v
+        flat.append(row)
+    df_export = pd.DataFrame(flat)
+
+    col_export, col_po, col_so = st.columns([3,1,1])
+    with col_export:
+        st.download_button(
+            "📥 Export Filtered Requests to CSV",
+            df_export.to_csv(index=False).encode("utf-8"),
+            "requests_export.csv",
+            "text/csv",
+            use_container_width=True
+        )
+    with col_po:
+        if st.button("💲 New Purchase Order", use_container_width=True):
+            st.session_state.show_new_po = True
+            st.rerun()
+    with col_so:
+        if st.button("🛒 New Sales Order", use_container_width=True):
+            st.session_state.show_new_so = True
+            st.rerun()
+
+    # ─── DISPLAY TABLE OR WARNING ──────────────────────────────────
     if filtered_requests:
-        # ─── ACTIONS ROW (EXPORT + NEW PO + NEW SO) ───────────────────
-        flat = []
-        for req in filtered_requests:
-            row = {"Type": req["Type"]}
-            if req["Type"] == "💲":
-                row["Ref#"] = req.get("Invoice", "")
-                row["Tracking#"] = req.get("Order#", "")
-            else:
-                row["Ref#"] = req.get("Order#", "")
-                row["Tracking#"] = req.get("Invoice", "")
-            for k, v in req.items():
-                kl = k.lower()
-                if kl in ("order#", "invoice", "comments", "statushistory", "attachments", "type"):
-                    continue
-                row[k] = ";".join(map(str, v)) if isinstance(v, list) else v
-            flat.append(row)
-
-        # ─── EXPORT + NEW PO + NEW SO BUTTONS ───────────────────────
-        df_export = pd.DataFrame(flat)
-        col_export, col_po, col_so = st.columns([3,1,1])
-        with col_export:
-            st.download_button(
-                "📥 Export Filtered Requests to CSV",
-                df_export.to_csv(index=False).encode("utf-8"),
-                "requests_export.csv",
-                "text/csv",
-                use_container_width=True
-            )
-        with col_po:
-            if st.button("💲 New Purchase Order", use_container_width=True):
-                st.session_state.show_new_po = True
-                st.rerun()
-        with col_so:
-            if st.button("🛒 New Sales Order", use_container_width=True):
-                st.session_state.show_new_so = True
-                st.rerun()
-
-        # ─── TABLE STYLING ──────────────────────────────────────────
+        # ─── TABLE STYLING ─────────────────────────────────────────
         st.markdown("""
         <style>
         .header-row   { font-weight:bold; font-size:18px; padding:0.5rem 0; }
@@ -581,7 +567,6 @@ elif st.session_state.page == "requests":
         </style>
         """, unsafe_allow_html=True)
 
-        # ─── TABLE HEADER ───────────────────────────────────────────
         cols_hdr = st.columns([1,1,2,3,1,2,2,2,2,2,1])
         headers  = ["","Type","Ref#","Description","Qty","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
         for c,h in zip(cols_hdr, headers):
@@ -592,7 +577,7 @@ elif st.session_state.page == "requests":
             idx = st.session_state.requests.index(req)
             cols = st.columns([1,1,2,3,1,2,2,2,2,2,1])
 
-            # ── UNREAD COMMENTS BUBBLE ─────────────────────────────
+            # Unread badge
             comments_list = st.session_state.comments.get(str(idx), [])
             for c in comments_list:
                 c.setdefault("read_by", [])
@@ -605,7 +590,7 @@ elif st.session_state.page == "requests":
                 unsafe_allow_html=True
             )
 
-            # ── DATA COLUMNS ───────────────────────────────────────
+            # Data columns
             cols[1].markdown(f"<span class='type-icon'>{req['Type']}</span>", unsafe_allow_html=True)
             cols[2].write(req.get("Invoice","") if req["Type"]=="💲" else req.get("Order#",""))
             desc = req.get("Description",[])
@@ -629,11 +614,10 @@ elif st.session_state.page == "requests":
             cols[8].write(req.get("Shipping Method",""))
             cols[9].write(req.get("Encargado",""))
 
-            # ── ACTIONS ────────────────────────────────────────────
+            # Actions
             with cols[10]:
                 a1, a2 = st.columns([1,1])
                 if a1.button("🔍", key=f"view_{i}"):
-                    # mark as read for this user
                     for c in comments_list:
                         if c.get("author") != user and user not in c["read_by"]:
                             c["read_by"].append(user)
@@ -649,6 +633,8 @@ elif st.session_state.page == "requests":
     st.markdown("---")
     if st.button("⬅ Back to Home"):
         go_to("home")
+
+
 
 
 ####
