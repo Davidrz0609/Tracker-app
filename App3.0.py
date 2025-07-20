@@ -240,7 +240,7 @@ elif st.session_state.page == "summary":
     def pick_qty(row):
         if pd.notna(row.get('Qty')):
             return row['Qty']
-        for col in ("Quantity","Items"):
+        for col in ("Quantity", "Items"):
             v = row.get(col)
             if isinstance(v, list) and v:
                 return v[0]
@@ -253,46 +253,56 @@ elif st.session_state.page == "summary":
 
     def badge(s):
         color = status_colors.get(s, "#95a5a6")
-        return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
+        return (
+            f"<span style='background-color:{color}; "
+            f"color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
+        )
 
     # ──────────────────────────────────────────────────────────────────────
-    # Load & Filter Data
+    # Load & Pre-Check Data
     # ──────────────────────────────────────────────────────────────────────
     load_data()
-    df = pd.DataFrame(st.session_state.requests)
-    df = df[df["Type"].isin(["💲","🛒"])].copy()
+    raw = pd.DataFrame(st.session_state.requests)
+
+    # If there's no data at all, or no "Type" column, bail out
+    if raw.empty or "Type" not in raw.columns:
+        st.info("No Purchase Orders or Sales Orders to summarize yet.")
+        st.stop()
+
+    # Only keep POs (💲) and SOs (🛒)
+    df = raw[raw["Type"].isin(["💲", "🛒"])].copy()
     if df.empty:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
         st.stop()
 
+    # ──────────────────────────────────────────────────────────────────────
+    # Clean & Enrich
+    # ──────────────────────────────────────────────────────────────────────
     df["Status"]   = df["Status"].astype(str).str.strip()
     df["Date"]     = pd.to_datetime(df["Date"], errors="coerce")
     df["ETA Date"] = pd.to_datetime(df["ETA Date"], errors="coerce")
-    df["Ref#"]     = df.apply(lambda r: r["Invoice"] if r["Type"]=="💲" else r["Order#"], axis=1)
+    df["Ref#"]     = df.apply(
+        lambda r: r["Invoice"] if r["Type"] == "💲" else r["Order#"],
+        axis=1
+    )
 
-    # Precompute masks
-    today           = pd.Timestamp(date.today())
-    overdue_mask    = (df["ETA Date"] < today) & ~df["Status"].isin(["READY","CANCELLED"])
-    due_today_mask  = (df["ETA Date"] == today) & (df["Status"] != "CANCELLED")
+    today          = pd.Timestamp(date.today())
+    overdue_mask   = (df["ETA Date"] < today) & ~df["Status"].isin(["READY", "CANCELLED"])
+    due_today_mask = (df["ETA Date"] == today) & (df["Status"] != "CANCELLED")
 
     # ──────────────────────────────────────────────────────────────────────
-    # 1. KPI Row
+    # 1. Key Metrics Row
     # ──────────────────────────────────────────────────────────────────────
-    total_requests   = len(df)
-    active_requests  = df[~df["Status"].isin(["COMPLETE","CANCELLED"])].shape[0]
-    overdue_requests = df[overdue_mask].shape[0]
-    due_today_count  = df[due_today_mask].shape[0]
-
     st.subheader("Key Metrics")
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total Requests",   total_requests)
-    k2.metric("Active Requests",  active_requests)
-    k3.metric("Overdue Requests", overdue_requests)
-    k4.metric("Due Today",        due_today_count)
+    k1.metric("Total Requests",   len(df))
+    k2.metric("Active Requests",  df[~df["Status"].isin(["COMPLETE", "CANCELLED"])].shape[0])
+    k3.metric("Overdue Requests", df[overdue_mask].shape[0])
+    k4.metric("Due Today",        df[due_today_mask].shape[0])
     st.markdown("---")
 
     # ──────────────────────────────────────────────────────────────────────
-    # Prepare Data for Chart & Tables
+    # 2. Status Distribution Pie
     # ──────────────────────────────────────────────────────────────────────
     count_df = (
         df["Status"]
@@ -301,17 +311,8 @@ elif st.session_state.page == "summary":
         .reset_index(name="Count")
     )
 
-    due_today = df[due_today_mask].copy()
-    if not due_today.empty:
-        due_today["Qty"]         = due_today.apply(pick_qty, axis=1)
-        due_today["Description"] = due_today["Description"].apply(flatten)
-
-    od = df[overdue_mask].copy()
-    od["Qty"]         = od.apply(pick_qty, axis=1)
-    od["Description"] = od["Description"].apply(flatten)
-
     # ──────────────────────────────────────────────────────────────────────
-    # 2. Two-Column Layout: Pie Chart on Left, Tables on Right
+    # 3. Layout: Pie (left) + Tables (right)
     # ──────────────────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
 
@@ -329,24 +330,46 @@ elif st.session_state.page == "summary":
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
+        # Due Today
         st.subheader("Due Today (ETA = today)")
+        due_today = df[due_today_mask].copy()
         if not due_today.empty:
-            disp_today = due_today[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
+            due_today["Qty"]         = due_today.apply(pick_qty, axis=1)
+            due_today["Description"] = due_today["Description"].apply(flatten)
+            disp_today = due_today[
+                ["Type", "Ref#", "Description", "Qty", "Encargado", "Status"]
+            ].copy()
             disp_today["Status"] = disp_today["Status"].apply(badge)
-            st.markdown(disp_today.to_html(index=False, escape=False), unsafe_allow_html=True)
+            st.markdown(
+                disp_today.to_html(index=False, escape=False),
+                unsafe_allow_html=True
+            )
         else:
             st.info("No POs/SOs due today.")
         st.markdown("---")
 
+        # Overdue
         st.subheader("Overdue Requests (PO & SO)")
-        disp_od = od[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
-        disp_od["Status"] = disp_od["Status"].apply(badge)
-        st.markdown(disp_od.to_html(index=False, escape=False), unsafe_allow_html=True)
+        od = df[overdue_mask].copy()
+        if not od.empty:
+            od["Qty"]         = od.apply(pick_qty, axis=1)
+            od["Description"] = od["Description"].apply(flatten)
+            disp_od = od[
+                ["Type", "Ref#", "Description", "Qty", "Encargado", "Status"]
+            ].copy()
+            disp_od["Status"] = disp_od["Status"].apply(badge)
+            st.markdown(
+                disp_od.to_html(index=False, escape=False),
+                unsafe_allow_html=True
+            )
+        else:
+            st.info("No overdue POs/SOs.")
 
     # ──────────────────────────────────────────────────────────────────────
     # Navigation
     # ──────────────────────────────────────────────────────────────────────
-    st.button("⬅ Back to Home", on_click=lambda: go_to("home")) 
+    st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
+
 
 ########
 elif st.session_state.page == "requests":
