@@ -219,52 +219,46 @@ if st.session_state.page == "home":
 #####
 elif st.session_state.page == "summary":
     import pandas as pd
-    import matplotlib.pyplot as plt
+    import plotly.express as px
     from datetime import date
+    from streamlit_plotly_events import plotly_events
 
-    # ─── SUMMARY PAGE HEADER ───────────────────────────────────────
+    # ─── HEADER ────────────────────────────────────────────────────
     st.markdown("# 📊 Summary (PO & SO)")
 
-    # ─── LOAD & PREPARE DATA ───────────────────────────────────────
+    # ─── LOAD & FILTER DATA ───────────────────────────────────────
     load_data()
     df = pd.DataFrame(st.session_state.requests)
-
-    # only Purchase Orders (💲) and Sales Orders (🛒)
     df = df[df['Type'].isin(['💲', '🛒'])].copy()
 
     if df.empty:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
     else:
-        # parse dates
+        # parse dates & unify ref#
         df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
         df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
-
-        # unified reference number
-        df['Ref#'] = df.apply(
+        df['Ref#']     = df.apply(
             lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'],
             axis=1
         )
 
-        # compute today and masks
+        # compute masks
         today        = pd.Timestamp(date.today())
         overdue_mask = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
 
-        # ─── 1. High-Level KPIs ───────────────────────────────────────
+        # ─── 1. KPIs ───────────────────────────────────────────────────
         total_requests   = len(df)
         active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
         overdue_requests = df[overdue_mask].shape[0]
-        df['lead_time']  = (df['ETA Date'] - df['Date']).dt.days
-        
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Requests",        total_requests)
-        c2.metric("Active Requests",       active_requests)
-        c3.metric("Overdue Requests",      overdue_requests)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Requests",   total_requests)
+        c2.metric("Active Requests",  active_requests)
+        c3.metric("Overdue Requests", overdue_requests)
         st.markdown("---")
 
-        # ─── 2. Status Distribution (Pie Chart) with Custom Colors ──
+        # ─── 2. Interactive Pie Chart ─────────────────────────────────
         status_counts = df['Status'].value_counts()
-
         status_colors = {
             "IN TRANSIT": "#f39c12",
             "READY":      "#2ecc71",
@@ -272,30 +266,35 @@ elif st.session_state.page == "summary":
             "ORDERED":    "#9b59b6",
             "CANCELLED":  "#e74c3c",
         }
-        # fallback to gray for any unknown status
-        colors = [status_colors.get(s, "#95a5a6") for s in status_counts.index]
 
-        fig, ax = plt.subplots()
-        ax.pie(
-            status_counts,
-            labels=status_counts.index,
-            colors=colors,
-            autopct='%1.1f%%',
-            startangle=90
+        # build the Plotly figure
+        fig = px.pie(
+            names=status_counts.index,
+            values=status_counts.values,
+            color=status_counts.index,
+            color_discrete_map=status_colors,
+            title="Status Distribution"
         )
-        ax.axis('equal')
-        st.pyplot(fig)
-        st.markdown("**Status Distribution**")
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+
+        # render & capture clicks
+        selected = plotly_events(fig, click_event=True, key="status_pie")
+        st.plotly_chart(fig, use_container_width=True)
         st.markdown("---")
 
-        # ─── 3. Overdue Requests Detail (PO# & SO# only) ─────────────
+        # if user clicked anywhere on the pie, redirect back to PO/SO page
+        if selected:
+            go_to("requests")
+
+        # ─── 3. Overdue Table ──────────────────────────────────────────
         od = df[overdue_mask].copy()
         od['PO#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else '', axis=1)
         od['SO#'] = od.apply(lambda r: r['Order#'] if r['Type']=='🛒' else '', axis=1)
 
         st.markdown("**Overdue Requests (PO & SO)**")
         st.dataframe(od[['PO#','SO#']], use_container_width=True)
-         # Navigation
+
+    # ─── NAVIGATION ────────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
 
