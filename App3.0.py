@@ -257,13 +257,8 @@ elif st.session_state.page == "summary":
     c3.metric("Overdue Requests", overdue_requests)
     st.markdown("---")
 
-    # ─── BUILD COUNT DATAFRAME & PIE (static) ─────────────────────
-    count_df = (
-        df['Status']
-          .value_counts()
-          .rename_axis('Status')
-          .reset_index(name='Count')
-    )
+    # ─── BUILD & PLOT PIE CHART ────────────────────────────────────
+    count_df = df['Status'].value_counts().rename_axis('Status').reset_index(name='Count')
     status_colors = {
         "IN TRANSIT": "#f39c12",
         "READY":      "#2ecc71",
@@ -284,21 +279,30 @@ elif st.session_state.page == "summary":
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
 
-    # ─── OVERDUE REQUESTS TABLE (TRIMMED COLUMNS) ──────────────────
+    # ─── OVERDUE REQUESTS TABLE ────────────────────────────────────
     od = df[overdue_mask].copy()
-    od['Ref#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'], axis=1)
 
-    # select only the requested columns
-    display_df = od[['Type', 'Ref#', 'Description', 'Qty', 'Encargado', 'Status']]
+    # normalize column names for Qty
+    if 'Quantity' in od.columns:
+        od = od.rename(columns={'Quantity': 'Qty'})
+    if 'Items' in od.columns:
+        od = od.rename(columns={'Items': 'Qty'})
 
-    # apply the same colored‐badge styling as on the requests page
-    def style_status(val):
-        color = status_colors.get(val, "#95a5a6")
-        return f"background-color:{color}; color:white; font-weight:bold; border-radius:4px; padding:2px 6px;"
+    # build display frame
+    display_df = od[['Type', 'Ref#', 'Description', 'Qty', 'Encargado', 'Status']].copy()
 
-    styled = display_df.style.applymap(style_status, subset=['Status'])
+    # style the Status badges
+    def badge(s):
+        color = status_colors.get(s, "#95a5a6")
+        return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
+
+    display_df['Status'] = display_df['Status'].apply(badge)
+
     st.markdown("**Overdue Requests (PO & SO)**")
-    st.write(styled, unsafe_allow_html=True)
+    st.markdown(
+        display_df.to_html(index=False, escape=False),
+        unsafe_allow_html=True
+    )
 
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
