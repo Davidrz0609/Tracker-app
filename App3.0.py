@@ -267,12 +267,14 @@ elif st.session_state.page == "summary":
     # If there's no data at all, or no "Type" column, bail out
     if raw.empty or "Type" not in raw.columns:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
+        st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
         st.stop()
 
     # Only keep POs (💲) and SOs (🛒)
     df = raw[raw["Type"].isin(["💲", "🛒"])].copy()
     if df.empty:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
+        st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
         st.stop()
 
     # ──────────────────────────────────────────────────────────────────────
