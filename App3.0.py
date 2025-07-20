@@ -254,7 +254,7 @@ elif st.session_state.page == "summary":
         active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
         overdue_requests = df[overdue_mask].shape[0]
         df['lead_time']  = (df['ETA Date'] - df['Date']).dt.days
-        avg_lead         = df['lead_time'].mean()
+        
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Requests",        total_requests)
