@@ -287,23 +287,10 @@ elif st.session_state.page == "summary":
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
 
-    # ─── OVERDUE REQUESTS TABLE (FULL DETAIL) ─────────────────────
+    # ─── OVERDUE REQUESTS TABLE (USE SAME METHOD AS REQUESTS PAGE) ─
     od = df[overdue_mask].copy()
-    # reuse the same Ref# logic
-    od['Ref#']   = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'], axis=1)
-    # rename Date → Ordered Date
-    od = od.rename(columns={'Date': 'Ordered Date'})
-    # choose the same columns & order as on your requests page
-    display_cols = [
-        'Type', 'Ref#', 'Description', 'Qty',
-        'Status', 'Ordered Date', 'ETA Date',
-        'Shipping Method', 'Encargado'
-    ]
     st.markdown("**Overdue Requests (PO & SO)**")
-    st.dataframe(
-        od[display_cols],
-        use_container_width=True
-    )
+    st.dataframe(od, use_container_width=True)
 
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
