@@ -311,7 +311,7 @@ def _set_page(page_name):
 
 
 ########
-if st.session_state.page == "requests":
+elif st.session_state.page == "requests":
     import pandas as pd
     import json
     from datetime import datetime, date
