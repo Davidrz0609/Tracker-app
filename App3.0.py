@@ -226,7 +226,7 @@ elif st.session_state.page == "summary":
     # ─── HEADER ────────────────────────────────────────────────────
     st.markdown("# 📊 Summary (PO & SO)")
 
-    # ─── LOAD & FILTER ─────────────────────────────────────────────
+    # ─── LOAD & FILTER DATA ───────────────────────────────────────
     load_data()
     df = pd.DataFrame(st.session_state.requests)
     df = df[df['Type'].isin(['💲', '🛒'])].copy()
@@ -257,15 +257,13 @@ elif st.session_state.page == "summary":
     c3.metric("Overdue Requests", overdue_requests)
     st.markdown("---")
 
-    # ─── BUILD COUNT DATAFRAME ────────────────────────────────────
+    # ─── BUILD COUNT DATAFRAME & PIE (static) ─────────────────────
     count_df = (
         df['Status']
           .value_counts()
           .rename_axis('Status')
           .reset_index(name='Count')
     )
-
-    # ─── STATIC PIE CHART (labels only, no legend) ───────────────
     status_colors = {
         "IN TRANSIT": "#f39c12",
         "READY":      "#2ecc71",
@@ -273,7 +271,6 @@ elif st.session_state.page == "summary":
         "ORDERED":    "#9b59b6",
         "CANCELLED":  "#e74c3c",
     }
-
     fig = px.pie(
         count_df,
         names='Status',
@@ -287,16 +284,25 @@ elif st.session_state.page == "summary":
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
 
-    # ─── OVERDUE REQUESTS TABLE (USE SAME METHOD AS REQUESTS PAGE) ─
+    # ─── OVERDUE REQUESTS TABLE (TRIMMED COLUMNS) ──────────────────
     od = df[overdue_mask].copy()
+    od['Ref#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'], axis=1)
+
+    # select only the requested columns
+    display_df = od[['Type', 'Ref#', 'Description', 'Qty', 'Encargado', 'Status']]
+
+    # apply the same colored‐badge styling as on the requests page
+    def style_status(val):
+        color = status_colors.get(val, "#95a5a6")
+        return f"background-color:{color}; color:white; font-weight:bold; border-radius:4px; padding:2px 6px;"
+
+    styled = display_df.style.applymap(style_status, subset=['Status'])
     st.markdown("**Overdue Requests (PO & SO)**")
-    st.dataframe(od, use_container_width=True)
+    st.write(styled, unsafe_allow_html=True)
 
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
-
-
 
  ########
 
