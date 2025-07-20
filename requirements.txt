@@ -5,4 +5,5 @@ openpyxl
 pdfplumber
 matplotlib
 streamlit-plotly-events
-st‑aggrid
+st
+aggrid
