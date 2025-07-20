@@ -260,7 +260,6 @@ elif st.session_state.page == "summary":
         c1.metric("Total Requests",        total_requests)
         c2.metric("Active Requests",       active_requests)
         c3.metric("Overdue Requests",      overdue_requests)
-        c4.metric("Avg Lead Time (days)", f"{avg_lead:.1f}")
         st.markdown("---")
 
         # ─── 2. Status Distribution (Pie Chart) with Custom Colors ──
