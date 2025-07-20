@@ -297,9 +297,7 @@ if st.session_state.page == "home":
             st.session_state.page = "req_list"; st.rerun()
         if st.button("📋 View All Purchase/Sales Orders", key="home_view_orders"):
             st.session_state.page = "requests";  st.rerun()
-        # you can keep the standalone Summary button if you like:
-        if st.button("📊 Summary", key="home_summary"):
-            st.session_state.page = "summary";   st.rerun()
+        
 
     with right:
         # ←— embed the full summary view here
