@@ -226,7 +226,7 @@ elif st.session_state.page == "summary":
     # ─── HEADER ────────────────────────────────────────────────────
     st.markdown("# 📊 Summary (PO & SO)")
 
-    # ─── LOAD & FILTER ─────────────────────────────────────────────
+    # ─── LOAD & FILTER DATA ───────────────────────────────────────
     load_data()
     df = pd.DataFrame(st.session_state.requests)
     df = df[df['Type'].isin(['💲', '🛒'])].copy()
@@ -261,7 +261,7 @@ elif st.session_state.page == "summary":
           .reset_index(name='Count')
     )
 
-    # ─── STATIC PIE CHART w/ LEGEND INSIDE ────────────────────────
+    # ─── STATIC PIE CHART (labels only, no legend) ───────────────
     status_colors = {
         "IN TRANSIT": "#f39c12",
         "READY":      "#2ecc71",
@@ -278,22 +278,10 @@ elif st.session_state.page == "summary":
         color_discrete_map=status_colors,
         title="Status Distribution"
     )
-    # show label + raw count inside each slice
+    # show "STATUS COUNT" inside each slice
     fig.update_traces(textinfo='label+value', textposition='inside')
-
-    # move legend inside at right-center, with slight transparency
-    fig.update_layout(
-        legend=dict(
-            orientation="v",
-            x=0.75,       # 75% across (right side)
-            y=0.5,        # halfway down
-            xanchor="center",
-            yanchor="middle",
-            bgcolor="rgba(255,255,255,0.6)",
-            bordercolor="lightgrey",
-            borderwidth=1
-        )
-    )
+    # turn off the legend panel
+    fig.update_layout(showlegend=False)
 
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
@@ -309,6 +297,7 @@ elif st.session_state.page == "summary":
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 
 
