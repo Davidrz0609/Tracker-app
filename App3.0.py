@@ -247,14 +247,18 @@ elif st.session_state.page == "summary":
     # ─── KPI CALCS ─────────────────────────────────────────────────
     today            = pd.Timestamp(date.today())
     overdue_mask     = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
+    due_today_mask   = df['ETA Date'] == today
     total_requests   = len(df)
     active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
     overdue_requests = df[overdue_mask].shape[0]
+    due_today_count  = df[due_today_mask].shape[0]
 
-    c1, c2, c3 = st.columns(3)
+    # ─── SHOW KPIs ─────────────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Requests",   total_requests)
     c2.metric("Active Requests",  active_requests)
     c3.metric("Overdue Requests", overdue_requests)
+    c4.metric("Due Today",         due_today_count)
     st.markdown("---")
 
     # ─── PIE CHART ─────────────────────────────────────────────────
@@ -279,51 +283,49 @@ elif st.session_state.page == "summary":
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
 
+    # ─── DUE TODAY TABLE ───────────────────────────────────────────
+    due_today = df[due_today_mask].copy()
+    if not due_today.empty:
+        # pick Qty
+        def pick_qty(row):
+            if pd.notna(row.get('Qty')): return row['Qty']
+            for col in ['Quantity','Items']:
+                v = row.get(col)
+                if isinstance(v, list) and v: return v[0]
+                if pd.notna(v):            return v
+            return None
+
+        due_today['Qty'] = due_today.apply(pick_qty, axis=1)
+        # flatten desc
+        due_today['Description'] = due_today['Description'].apply(lambda v: v[0] if isinstance(v,list) and v else v)
+
+        display_today = due_today[['Type','Ref#','Description','Qty','Encargado','Status']].copy()
+        # style status
+        def badge(s):
+            color = status_colors.get(s, "#95a5a6")
+            return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
+        display_today['Status'] = display_today['Status'].apply(badge)
+
+        st.markdown("**Due Today (ETA = today)**")
+        st.markdown(display_today.to_html(index=False, escape=False), unsafe_allow_html=True)
+        st.markdown("---")
+    else:
+        st.info("No POs/SOs due today.")
+
     # ─── OVERDUE REQUESTS TABLE ────────────────────────────────────
     od = df[overdue_mask].copy()
-    od['Ref#']   = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'], axis=1)
-
-    # Choose the correct Qty column:
-    # Prefer numeric 'Qty' if present; otherwise flatten 'Items' or 'Quantity'
-    def pick_qty(row):
-        if pd.notna(row.get('Qty')):
-            return row['Qty']
-        for col in ['Quantity', 'Items']:
-            val = row.get(col)
-            if isinstance(val, list) and val:
-                return val[0]
-            if pd.notna(val) and not isinstance(val, list):
-                return val
-        return None
-
-    od['Qty_clean'] = od.apply(pick_qty, axis=1)
-
-    # Flatten description lists
-    def flatten_desc(v):
-        if isinstance(v, list) and v:
-            return v[0]
-        return v
-    od['Description'] = od['Description'].apply(flatten_desc)
-
-    # Build display DataFrame
-    display_df = od[['Type', 'Ref#', 'Description', 'Qty_clean', 'Encargado', 'Status']].copy()
-    display_df.rename(columns={'Qty_clean': 'Qty'}, inplace=True)
-
-    # Style the status badges
-    def badge(s):
-        color = status_colors.get(s, "#95a5a6")
-        return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
-    display_df['Status'] = display_df['Status'].apply(badge)
+    od['Qty'] = od.apply(pick_qty, axis=1)
+    od['Description'] = od['Description'].apply(lambda v: v[0] if isinstance(v,list) and v else v)
+    display_od = od[['Type','Ref#','Description','Qty','Encargado','Status']].copy()
+    display_od['Status'] = display_od['Status'].apply(badge)
 
     st.markdown("**Overdue Requests (PO & SO)**")
-    st.markdown(
-        display_df.to_html(index=False, escape=False),
-        unsafe_allow_html=True
-    )
+    st.markdown(display_od.to_html(index=False, escape=False), unsafe_allow_html=True)
 
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
  ########
 
