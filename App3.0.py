@@ -226,7 +226,7 @@ elif st.session_state.page == "summary":
     # ─── HEADER ────────────────────────────────────────────────────
     st.markdown("# 📊 Summary (PO & SO)")
 
-    # ─── LOAD & FILTER DATA ───────────────────────────────────────
+    # ─── LOAD & FILTER ─────────────────────────────────────────────
     load_data()
     df = pd.DataFrame(st.session_state.requests)
     df = df[df['Type'].isin(['💲', '🛒'])].copy()
@@ -239,6 +239,10 @@ elif st.session_state.page == "summary":
     df['Status']   = df['Status'].astype(str).str.strip()
     df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
     df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
+    df['Ref#']     = df.apply(
+        lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'],
+        axis=1
+    )
 
     # ─── KPI CALCS ─────────────────────────────────────────────────
     today            = pd.Timestamp(date.today())
@@ -278,26 +282,32 @@ elif st.session_state.page == "summary":
         color_discrete_map=status_colors,
         title="Status Distribution"
     )
-    # show "STATUS COUNT" inside each slice
     fig.update_traces(textinfo='label+value', textposition='inside')
-    # turn off the legend panel
     fig.update_layout(showlegend=False)
-
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
 
-    # ─── OVERDUE REQUESTS TABLE ───────────────────────────────────
+    # ─── OVERDUE REQUESTS TABLE (FULL DETAIL) ─────────────────────
     od = df[overdue_mask].copy()
-    od['PO#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else '', axis=1)
-    od['SO#'] = od.apply(lambda r: r['Order#'] if r['Type']=='🛒' else '', axis=1)
-
+    # reuse the same Ref# logic
+    od['Ref#']   = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'], axis=1)
+    # rename Date → Ordered Date
+    od = od.rename(columns={'Date': 'Ordered Date'})
+    # choose the same columns & order as on your requests page
+    display_cols = [
+        'Type', 'Ref#', 'Description', 'Qty',
+        'Status', 'Ordered Date', 'ETA Date',
+        'Shipping Method', 'Encargado'
+    ]
     st.markdown("**Overdue Requests (PO & SO)**")
-    st.dataframe(od[['PO#','SO#']], use_container_width=True)
+    st.dataframe(
+        od[display_cols],
+        use_container_width=True
+    )
 
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
-
 
 
 
