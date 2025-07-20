@@ -265,6 +265,9 @@ elif st.session_state.page == "summary":
             .reset_index(name="Count")
         )
 
+        # DEBUG: show what counts we have
+        st.write("🔍 Debug — Status counts DataFrame:", count_df)
+
         # custom colors
         status_colors = {
             "IN TRANSIT": "#f39c12",
@@ -285,10 +288,10 @@ elif st.session_state.page == "summary":
         )
         fig.update_traces(textposition='inside', textinfo='value')
 
-        # plotly_events both renders the chart and captures clicks
+        # plotly_events will render the chart and capture clicks
         clicked = plotly_events(fig, click_event=True, key="status_pie")
 
-        # if you click any slice, go back to PO/SO
+        # redirect on any slice click
         if clicked:
             go_to("requests")
 
@@ -305,6 +308,7 @@ elif st.session_state.page == "summary":
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 # -------------------------------------------
 # --------------- SUMMARY PAGE --------------
