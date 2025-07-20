@@ -216,8 +216,7 @@ if st.session_state.page == "home":
             st.session_state.page = "requests"
             st.rerun()
 
-#####
-elif st.session_state.page == "summary":
+#####elif st.session_state.page == "summary":
     import pandas as pd
     import plotly.express as px
     from datetime import date
@@ -233,82 +232,76 @@ elif st.session_state.page == "summary":
 
     if df.empty:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
-    else:
-        # parse dates & unify Ref#
-        df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
-        df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
-        df['Ref#']     = df.apply(
-            lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'],
-            axis=1
-        )
+        return
 
-        # KPI masks
-        today        = pd.Timestamp(date.today())
-        overdue_mask = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
+    # ─── CLEAN & PREPARE ───────────────────────────────────────────
+    df['Status'] = df['Status'].astype(str).str.strip()   # remove stray spaces
+    df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
+    df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
+    df['Ref#']     = df.apply(
+        lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'],
+        axis=1
+    )
 
-        # ─── 1. KPIs ───────────────────────────────────────────────────
-        total_requests   = len(df)
-        active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
-        overdue_requests = df[overdue_mask].shape[0]
+    # ─── KPI CALCS ─────────────────────────────────────────────────
+    today            = pd.Timestamp(date.today())
+    overdue_mask     = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
+    total_requests   = len(df)
+    active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
+    overdue_requests = df[overdue_mask].shape[0]
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total Requests",   total_requests)
-        c2.metric("Active Requests",  active_requests)
-        c3.metric("Overdue Requests", overdue_requests)
-        st.markdown("---")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Requests",   total_requests)
+    c2.metric("Active Requests",  active_requests)
+    c3.metric("Overdue Requests", overdue_requests)
+    st.markdown("---")
 
-        # ─── 2. BUILD A TRUE COUNT DATAFRAME ───────────────────────────
-        count_df = (
-            df
-            .groupby("Status", dropna=False)
-            .size()
-            .reset_index(name="Count")
-        )
+    # ─── BUILD THE COUNT DATAFRAME ────────────────────────────────
+    count_df = (
+        df['Status']
+          .value_counts()
+          .rename_axis('Status')
+          .reset_index(name='Count')
+    )
 
-        # DEBUG: show what counts we have
-        st.write("🔍 Debug — Status counts DataFrame:", count_df)
+    # ─── PIE CHART SETUP ──────────────────────────────────────────
+    status_colors = {
+        "IN TRANSIT": "#f39c12",
+        "READY":      "#2ecc71",
+        "COMPLETE":   "#3498db",
+        "ORDERED":    "#9b59b6",
+        "CANCELLED":  "#e74c3c",
+    }
 
-        # custom colors
-        status_colors = {
-            "IN TRANSIT": "#f39c12",
-            "READY":      "#2ecc71",
-            "COMPLETE":   "#3498db",
-            "ORDERED":    "#9b59b6",
-            "CANCELLED":  "#e74c3c",
-        }
+    fig = px.pie(
+        count_df,
+        names='Status',
+        values='Count',
+        color='Status',
+        color_discrete_map=status_colors,
+        title="Status Distribution"
+    )
+    fig.update_traces(textposition='inside', textinfo='value')
 
-        # ─── 3. INTERACTIVE PIE CHART (raw counts only) ────────────────
-        fig = px.pie(
-            count_df,
-            names="Status",
-            values="Count",
-            color="Status",
-            color_discrete_map=status_colors,
-            title="Status Distribution"
-        )
-        fig.update_traces(textposition='inside', textinfo='value')
+    # ─── RENDER & CAPTURE CLICKS ─────────────────────────────────
+    # plotly_events() both draws the chart AND returns a list on click
+    clicked = plotly_events(fig, click_event=True, key="status_pie")
+    if clicked:
+        go_to("requests")
 
-        # plotly_events will render the chart and capture clicks
-        clicked = plotly_events(fig, click_event=True, key="status_pie")
+    st.markdown("---")
 
-        # redirect on any slice click
-        if clicked:
-            go_to("requests")
+    # ─── OVERDUE REQUESTS TABLE ───────────────────────────────────
+    od = df[overdue_mask].copy()
+    od['PO#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else '', axis=1)
+    od['SO#'] = od.apply(lambda r: r['Order#'] if r['Type']=='🛒' else '', axis=1)
 
-        st.markdown("---")
-
-        # ─── 4. OVERDUE REQUESTS TABLE ─────────────────────────────────
-        od = df[overdue_mask].copy()
-        od['PO#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else '', axis=1)
-        od['SO#'] = od.apply(lambda r: r['Order#'] if r['Type']=='🛒' else '', axis=1)
-
-        st.markdown("**Overdue Requests (PO & SO)**")
-        st.dataframe(od[['PO#','SO#']], use_container_width=True)
+    st.markdown("**Overdue Requests (PO & SO)**")
+    st.dataframe(od[['PO#','SO#']], use_container_width=True)
 
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
-
 
 # -------------------------------------------
 # --------------- SUMMARY PAGE --------------
