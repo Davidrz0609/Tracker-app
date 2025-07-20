@@ -223,7 +223,7 @@ elif st.session_state.page == "summary":
     from datetime import date
     from streamlit_plotly_events import plotly_events
 
-    # ─── SUMMARY PAGE HEADER ───────────────────────────────────────
+    # ─── HEADER ────────────────────────────────────────────────────
     st.markdown("# 📊 Summary (PO & SO)")
 
     # ─── LOAD & FILTER DATA ───────────────────────────────────────
@@ -249,22 +249,22 @@ elif st.session_state.page == "summary":
         active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
         overdue_requests = df[overdue_mask].shape[0]
 
-        # display KPIs
+        # show KPIs
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Requests",   total_requests)
         c2.metric("Active Requests",  active_requests)
         c3.metric("Overdue Requests", overdue_requests)
         st.markdown("---")
 
-        # build count DataFrame
+        # ─── BUILD A TRUE COUNT DATAFRAME ─────────────────────────────
         count_df = (
-            df['Status']
-              .value_counts()
-              .rename_axis('Status')
-              .reset_index(name='Count')
+            df
+            .groupby("Status")
+            .size()
+            .reset_index(name="Count")
         )
 
-        # custom colors for statuses
+        # custom hex-colors
         status_colors = {
             "IN TRANSIT": "#f39c12",
             "READY":      "#2ecc71",
@@ -273,18 +273,19 @@ elif st.session_state.page == "summary":
             "CANCELLED":  "#e74c3c",
         }
 
-        # ─── INTERACTIVE PIE CHART (counts only) ──────────────────────
+        # ─── INTERACTIVE PIE CHART (raw counts) ───────────────────────
         fig = px.pie(
-            data_frame=count_df,
-            names='Status',
-            values='Count',
-            color='Status',
+            count_df,
+            names="Status",
+            values="Count",
+            color="Status",
             color_discrete_map=status_colors,
             title="Status Distribution"
         )
+        # show just the number in each slice
         fig.update_traces(textposition='inside', textinfo='value')
 
-        # render chart & capture clicks
+        # render & capture click
         clicked = plotly_events(fig, click_event=True, key="status_pie")
         if clicked:
             go_to("requests")
@@ -298,10 +299,9 @@ elif st.session_state.page == "summary":
         st.markdown("**Overdue Requests (PO & SO)**")
         st.dataframe(od[['PO#','SO#']], use_container_width=True)
 
-    # ─── BACK TO HOME BUTTON ───────────────────────────────────────
+    # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
-
 
 # -------------------------------------------
 # --------------- SUMMARY PAGE --------------
