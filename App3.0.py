@@ -279,42 +279,40 @@ elif st.session_state.page == "summary":
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
 
-    # ─── OVERDUE REQUESTS TABLE (TRIMMED) ─────────────────────────
+    # ─── OVERDUE REQUESTS TABLE ────────────────────────────────────
     od = df[overdue_mask].copy()
+    od['Ref#']   = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'], axis=1)
 
-    # pick which column holds the true qty, then drop the others
-    if 'Items' in od.columns:
-        od['Qty_display'] = od['Items']
-    elif 'Quantity' in od.columns:
-        od['Qty_display'] = od['Quantity']
-    elif 'Qty' in od.columns:
-        od['Qty_display'] = od['Qty']
-    else:
-        od['Qty_display'] = None
+    # Choose the correct Qty column:
+    # Prefer numeric 'Qty' if present; otherwise flatten 'Items' or 'Quantity'
+    def pick_qty(row):
+        if pd.notna(row.get('Qty')):
+            return row['Qty']
+        for col in ['Quantity', 'Items']:
+            val = row.get(col)
+            if isinstance(val, list) and val:
+                return val[0]
+            if pd.notna(val) and not isinstance(val, list):
+                return val
+        return None
 
-    for col in ['Items', 'Quantity', 'Qty']:
-        if col in od.columns:
-            od.drop(columns=col, inplace=True)
+    od['Qty_clean'] = od.apply(pick_qty, axis=1)
 
-    # flatten lists and strip brackets from Description and Qty
-    def flatten(x):
-        if isinstance(x, list) and x:
-            return x[0]
-        return x
+    # Flatten description lists
+    def flatten_desc(v):
+        if isinstance(v, list) and v:
+            return v[0]
+        return v
+    od['Description'] = od['Description'].apply(flatten_desc)
 
-    od['Description'] = od['Description'].apply(flatten)
-    od['Qty']         = od['Qty_display'].apply(flatten)
-    od.drop(columns=['Qty_display'], inplace=True)
+    # Build display DataFrame
+    display_df = od[['Type', 'Ref#', 'Description', 'Qty_clean', 'Encargado', 'Status']].copy()
+    display_df.rename(columns={'Qty_clean': 'Qty'}, inplace=True)
 
-    # add Ref# and select desired columns
-    od['Ref#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'], axis=1)
-    display_df = od[['Type', 'Ref#', 'Description', 'Qty', 'Encargado', 'Status']].copy()
-
-    # apply colored badges to Status
+    # Style the status badges
     def badge(s):
         color = status_colors.get(s, "#95a5a6")
         return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
-
     display_df['Status'] = display_df['Status'].apply(badge)
 
     st.markdown("**Overdue Requests (PO & SO)**")
