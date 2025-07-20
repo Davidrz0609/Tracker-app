@@ -229,9 +229,9 @@ elif st.session_state.page == "summary":
     import plotly.express as px
     from datetime import date
 
-    # ────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     # Helpers & Config
-    # ────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     status_colors = {
         "IN TRANSIT": "#f39c12",
         "READY":      "#2ecc71",
@@ -261,23 +261,28 @@ elif st.session_state.page == "summary":
             f"color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
         )
 
-    # ────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     # Load & Pre-Check Data
-    # ────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     load_data()
     raw = pd.DataFrame(st.session_state.requests)
+
+    # If there's no data at all, or no "Type" column, bail out
     if raw.empty or "Type" not in raw.columns:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
         st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
         st.stop()
 
+    # Only keep POs (💲) and SOs (🛒)
     df = raw[raw["Type"].isin(["💲", "🛒"])].copy()
     if df.empty:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
         st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
         st.stop()
 
-    # Clean & enrich
+    # ──────────────────────────────────────────────────────────────────────
+    # Clean & Enrich
+    # ──────────────────────────────────────────────────────────────────────
     df["Status"]   = df["Status"].astype(str).str.strip()
     df["Date"]     = pd.to_datetime(df["Date"], errors="coerce")
     df["ETA Date"] = pd.to_datetime(df["ETA Date"], errors="coerce")
@@ -290,20 +295,34 @@ elif st.session_state.page == "summary":
     overdue_mask   = (df["ETA Date"] < today) & ~df["Status"].isin(["READY", "CANCELLED"])
     due_today_mask = (df["ETA Date"] == today) & (df["Status"] != "CANCELLED")
 
-    # ────────────────────────────────────────────────────────────────
-    # Two-Column Layout: Pie Chart (left) + Metrics & Tables (right)
-    # ────────────────────────────────────────────────────────────────
-    col1, col2 = st.columns([1, 1], gap="large")
+    # ──────────────────────────────────────────────────────────────────────
+    # 1. Key Metrics Row
+    # ──────────────────────────────────────────────────────────────────────
+    st.subheader("Key Metrics")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Requests",   len(df))
+    k2.metric("Active Requests",  df[~df["Status"].isin(["COMPLETE", "CANCELLED"])].shape[0])
+    k3.metric("Overdue Requests", df[overdue_mask].shape[0])
+    k4.metric("Due Today",        df[due_today_mask].shape[0])
+    st.markdown("---")
 
-    # —— LEFT: Pie Chart
+    # ──────────────────────────────────────────────────────────────────────
+    # 2. Status Distribution Pie
+    # ──────────────────────────────────────────────────────────────────────
+    count_df = (
+        df["Status"]
+        .value_counts()
+        .rename_axis("Status")
+        .reset_index(name="Count")
+    )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # 3. Layout: Pie (left) + Tables (right)
+    # ──────────────────────────────────────────────────────────────────────
+    col1, col2 = st.columns(2)
+
     with col1:
         st.subheader("Status Distribution")
-        count_df = (
-            df["Status"]
-              .value_counts()
-              .rename_axis("Status")
-              .reset_index(name="Count")
-        )
         fig = px.pie(
             count_df,
             names="Status",
@@ -315,52 +334,46 @@ elif st.session_state.page == "summary":
         fig.update_layout(showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
-    # —— RIGHT: Key Metrics + Due Today + Overdue
     with col2:
-        # 1) Key Metrics
-        st.subheader("Key Metrics")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Requests",   len(df))
-        m2.metric("Active Requests",  df[~df["Status"].isin(["COMPLETE", "CANCELLED"])].shape[0])
-        m3.metric("Overdue Requests", df[overdue_mask].shape[0])
-        m4.metric("Due Today",        df[due_today_mask].shape[0])
-        st.markdown("---")
-
-        # 2) Due Today
-        st.subheader("Due Today (ETA = today)")
+        # Due Today
+        st.subheader("Due Today")
         due_today = df[due_today_mask].copy()
         if not due_today.empty:
             due_today["Qty"]         = due_today.apply(pick_qty, axis=1)
             due_today["Description"] = due_today["Description"].apply(flatten)
-            disp = due_today[
+            disp_today = due_today[
                 ["Type", "Ref#", "Description", "Qty", "Encargado", "Status"]
             ].copy()
-            disp["Status"] = disp["Status"].apply(badge)
-            st.markdown(disp.to_html(index=False, escape=False), unsafe_allow_html=True)
+            disp_today["Status"] = disp_today["Status"].apply(badge)
+            st.markdown(
+                disp_today.to_html(index=False, escape=False),
+                unsafe_allow_html=True
+            )
         else:
             st.info("No POs/SOs due today.")
         st.markdown("---")
 
-        # 3) Overdue
-        st.subheader("Overdue Requests (PO & SO)")
+        # Overdue
+        st.subheader("Overdue")
         od = df[overdue_mask].copy()
         if not od.empty:
             od["Qty"]         = od.apply(pick_qty, axis=1)
             od["Description"] = od["Description"].apply(flatten)
-            disp = od[
+            disp_od = od[
                 ["Type", "Ref#", "Description", "Qty", "Encargado", "Status"]
             ].copy()
-            disp["Status"] = disp["Status"].apply(badge)
-            st.markdown(disp.to_html(index=False, escape=False), unsafe_allow_html=True)
+            disp_od["Status"] = disp_od["Status"].apply(badge)
+            st.markdown(
+                disp_od.to_html(index=False, escape=False),
+                unsafe_allow_html=True
+            )
         else:
             st.info("No overdue POs/SOs.")
 
-    # ────────────────────────────────────────────────────────────────
-    # Back Button
-    # ────────────────────────────────────────────────────────────────
-    st.markdown("---")
+    # ──────────────────────────────────────────────────────────────────────
+    # Navigation
+    # ──────────────────────────────────────────────────────────────────────
     st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
-
 
 
 ########
