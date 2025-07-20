@@ -239,17 +239,19 @@ elif st.session_state.page == "summary":
         df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
         df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
 
-        # unified reference
+        # unified reference number
         df['Ref#'] = df.apply(
             lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'],
             axis=1
         )
 
-        # metrics
-        today            = pd.Timestamp(date.today())
+        # compute today and masks
+        today        = pd.Timestamp(date.today())
+        overdue_mask = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
+
+        # ─── 1. High-Level KPIs ───────────────────────────────────────
         total_requests   = len(df)
         active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
-        overdue_mask     = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
         overdue_requests = df[overdue_mask].shape[0]
         df['lead_time']  = (df['ETA Date'] - df['Date']).dt.days
         avg_lead         = df['lead_time'].mean()
@@ -261,30 +263,39 @@ elif st.session_state.page == "summary":
         c4.metric("Avg Lead Time (days)", f"{avg_lead:.1f}")
         st.markdown("---")
 
-        # status distribution pie chart
+        # ─── 2. Status Distribution (Pie Chart) with Custom Colors ──
         status_counts = df['Status'].value_counts()
+
+        status_colors = {
+            "IN TRANSIT": "#f39c12",
+            "READY":      "#2ecc71",
+            "COMPLETE":   "#3498db",
+            "ORDERED":    "#9b59b6",
+            "CANCELLED":  "#e74c3c",
+        }
+        # fallback to gray for any unknown status
+        colors = [status_colors.get(s, "#95a5a6") for s in status_counts.index]
+
         fig, ax = plt.subplots()
-        ax.pie(status_counts,
-               labels=status_counts.index,
-               autopct='%1.1f%%',
-               startangle=90)
+        ax.pie(
+            status_counts,
+            labels=status_counts.index,
+            colors=colors,
+            autopct='%1.1f%%',
+            startangle=90
+        )
         ax.axis('equal')
         st.pyplot(fig)
         st.markdown("**Status Distribution**")
         st.markdown("---")
 
-        # overdue detail table (PO# & SO# only)
+        # ─── 3. Overdue Requests Detail (PO# & SO# only) ─────────────
         od = df[overdue_mask].copy()
         od['PO#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else '', axis=1)
         od['SO#'] = od.apply(lambda r: r['Order#'] if r['Type']=='🛒' else '', axis=1)
 
         st.markdown("**Overdue Requests (PO & SO)**")
         st.dataframe(od[['PO#','SO#']], use_container_width=True)
-
-
-    # Navigation
-    if st.button("⬅ Back to Home"):
-        go_to("home")
 
 
 
