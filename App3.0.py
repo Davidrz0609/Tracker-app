@@ -216,101 +216,71 @@ if st.session_state.page == "home":
             st.session_state.page = "requests"
             st.rerun()
 
+#####
 elif st.session_state.page == "summary":
     import pandas as pd
     import matplotlib.pyplot as plt
     from datetime import date
 
-    # -- SUMMARY PAGE HEADER --
-    st.markdown("# 📊 Summary")
+    # ─── SUMMARY PAGE HEADER ───────────────────────────────────────
+    st.markdown("# 📊 Summary (PO & SO)")
 
-    # Ensure latest data
+    # ─── LOAD & PREPARE DATA ───────────────────────────────────────
     load_data()
     df = pd.DataFrame(st.session_state.requests)
 
+    # only Purchase Orders (💲) and Sales Orders (🛒)
+    df = df[df['Type'].isin(['💲', '🛒'])].copy()
+
     if df.empty:
-        st.info("No requests to summarize yet.")
+        st.info("No Purchase Orders or Sales Orders to summarize yet.")
     else:
-        # Convert date columns
-        df['Date']     = pd.to_datetime(df['Date'], errors='coerce')
+        # parse dates
+        df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
         df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
 
-        # Uniform reference number
+        # unified reference
         df['Ref#'] = df.apply(
             lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'],
             axis=1
         )
 
-        # Today's date
-        today = pd.Timestamp(date.today())
-
-        # -- 1. High‑Level KPIs --
+        # metrics
+        today            = pd.Timestamp(date.today())
         total_requests   = len(df)
         active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
-        overdue_requests = df[
-            (df['ETA Date'] < today) &
-            ~df['Status'].isin(['READY','CANCELLED'])
-        ].shape[0]
+        overdue_mask     = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
+        overdue_requests = df[overdue_mask].shape[0]
         df['lead_time']  = (df['ETA Date'] - df['Date']).dt.days
         avg_lead         = df['lead_time'].mean()
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Requests", total_requests)
-        c2.metric("Active Requests", active_requests)
-        c3.metric("Overdue Requests", overdue_requests)
+        c1.metric("Total Requests",        total_requests)
+        c2.metric("Active Requests",       active_requests)
+        c3.metric("Overdue Requests",      overdue_requests)
         c4.metric("Avg Lead Time (days)", f"{avg_lead:.1f}")
         st.markdown("---")
 
-        # -- 2. Status Distribution (Pie Chart) --
+        # status distribution pie chart
         status_counts = df['Status'].value_counts()
-        fig1, ax1 = plt.subplots()
-        ax1.pie(status_counts, labels=status_counts.index,
-                autopct='%1.1f%%', startangle=90)
-        ax1.axis('equal')
-        st.pyplot(fig1)
+        fig, ax = plt.subplots()
+        ax.pie(status_counts,
+               labels=status_counts.index,
+               autopct='%1.1f%%',
+               startangle=90)
+        ax.axis('equal')
+        st.pyplot(fig)
         st.markdown("**Status Distribution**")
         st.markdown("---")
 
-        # -- 3. Requests Over Time (Line Chart) --
-        daily = df.groupby(df['Date'].dt.date).size()
-        fig2, ax2 = plt.subplots()
-        ax2.plot(daily.index, daily.values, marker='o')
-        ax2.set_title('Requests Over Time')
-        ax2.set_xlabel('Date')
-        ax2.set_ylabel('Count')
-        st.pyplot(fig2)
-        st.markdown("---")
-
-        # -- 4. Breakdown by Type (Bar Chart) --
-        type_counts = df['Type'].value_counts()
-        fig3, ax3 = plt.subplots()
-        ax3.bar(type_counts.index.astype(str), type_counts.values)
-        ax3.set_title('Requests by Type')
-        st.pyplot(fig3)
-        st.markdown("---")
-
-        # -- 5. Top Encargados --
-        total_by_enc     = df.groupby('Encargado').size()
-        completed_by_enc = df[df['Status']=='COMPLETE'].groupby('Encargado').size()
-        leader_df = pd.DataFrame({
-            'Total': total_by_enc,
-            'Completed': completed_by_enc
-        }).fillna(0).astype(int)
-        st.markdown("**Top Encargados**")
-        st.table(leader_df.sort_values('Total', ascending=False).head(10))
-        st.markdown("---")
-
-        # -- 6. Overdue Requests Detail (PO# & SO# only) --
-        od = df[
-            (df['ETA Date'] < today) &
-            ~df['Status'].isin(['READY','CANCELLED'])
-        ].copy()
-        # Create separate columns for PO and SO
+        # overdue detail table (PO# & SO# only)
+        od = df[overdue_mask].copy()
         od['PO#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else '', axis=1)
         od['SO#'] = od.apply(lambda r: r['Order#'] if r['Type']=='🛒' else '', axis=1)
 
         st.markdown("**Overdue Requests (PO & SO)**")
         st.dataframe(od[['PO#','SO#']], use_container_width=True)
+
 
     # Navigation
     if st.button("⬅ Back to Home"):
