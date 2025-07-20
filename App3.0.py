@@ -247,7 +247,7 @@ elif st.session_state.page == "summary":
     # ─── KPI CALCS ─────────────────────────────────────────────────
     today            = pd.Timestamp(date.today())
     overdue_mask     = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
-    due_today_mask   = df['ETA Date'] == today
+    due_today_mask   = (df['ETA Date'] == today) & (df['Status'] != 'CANCELLED')
     total_requests   = len(df)
     active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
     overdue_requests = df[overdue_mask].shape[0]
@@ -286,21 +286,21 @@ elif st.session_state.page == "summary":
     # ─── DUE TODAY TABLE ───────────────────────────────────────────
     due_today = df[due_today_mask].copy()
     if not due_today.empty:
-        # pick Qty
         def pick_qty(row):
-            if pd.notna(row.get('Qty')): return row['Qty']
+            if pd.notna(row.get('Qty')):
+                return row['Qty']
             for col in ['Quantity','Items']:
                 v = row.get(col)
-                if isinstance(v, list) and v: return v[0]
-                if pd.notna(v):            return v
+                if isinstance(v, list) and v:
+                    return v[0]
+                if pd.notna(v):
+                    return v
             return None
 
         due_today['Qty'] = due_today.apply(pick_qty, axis=1)
-        # flatten desc
         due_today['Description'] = due_today['Description'].apply(lambda v: v[0] if isinstance(v,list) and v else v)
 
         display_today = due_today[['Type','Ref#','Description','Qty','Encargado','Status']].copy()
-        # style status
         def badge(s):
             color = status_colors.get(s, "#95a5a6")
             return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
@@ -325,6 +325,7 @@ elif st.session_state.page == "summary":
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 
  ########
