@@ -234,7 +234,7 @@ elif st.session_state.page == "summary":
     if df.empty:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
     else:
-        # parse dates & unify ref#
+        # parse dates & unify Ref#
         df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
         df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
         df['Ref#']     = df.apply(
@@ -242,13 +242,11 @@ elif st.session_state.page == "summary":
             axis=1
         )
 
-        # compute masks
-        today        = pd.Timestamp(date.today())
-        overdue_mask = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
-
-        # ─── 1. KPIs ───────────────────────────────────────────────────
+        # KPIs
+        today            = pd.Timestamp(date.today())
         total_requests   = len(df)
         active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
+        overdue_mask     = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
         overdue_requests = df[overdue_mask].shape[0]
 
         c1, c2, c3 = st.columns(3)
@@ -257,15 +255,15 @@ elif st.session_state.page == "summary":
         c3.metric("Overdue Requests", overdue_requests)
         st.markdown("---")
 
-        # ─── 2. Interactive Plotly Pie ────────────────────────────────
-        # build a small DataFrame of counts
+        # build the count DataFrame
         count_df = (
             df['Status']
-            .value_counts()
-            .reset_index()
-            .rename(columns={'index':'Status', 'Status':'Count'})
+              .value_counts()
+              .rename_axis('Status')
+              .reset_index(name='Count')
         )
 
+        # your custom colors
         status_colors = {
             "IN TRANSIT": "#f39c12",
             "READY":      "#2ecc71",
@@ -274,8 +272,9 @@ elif st.session_state.page == "summary":
             "CANCELLED":  "#e74c3c",
         }
 
+        # ─── INTERACTIVE PIE CHART ─────────────────────────────────────
         fig = px.pie(
-            count_df,
+            data_frame=count_df,
             names='Status',
             values='Count',
             color='Status',
@@ -284,16 +283,16 @@ elif st.session_state.page == "summary":
         )
         fig.update_traces(textposition='inside', textinfo='percent+label')
 
-        # this both renders the chart *and* captures click events
+        # this renders the chart *and* returns a non-empty list if you click any slice
         clicked = plotly_events(fig, click_event=True, key="status_pie")
 
-        # if the user clicked any slice, go back to the PO/SO page
+        # redirect on click
         if clicked:
             go_to("requests")
 
         st.markdown("---")
 
-        # ─── 3. Overdue Table ──────────────────────────────────────────
+        # ─── OVERDUE TABLE ─────────────────────────────────────────────
         od = df[overdue_mask].copy()
         od['PO#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else '', axis=1)
         od['SO#'] = od.apply(lambda r: r['Order#'] if r['Type']=='🛒' else '', axis=1)
@@ -301,7 +300,7 @@ elif st.session_state.page == "summary":
         st.markdown("**Overdue Requests (PO & SO)**")
         st.dataframe(od[['PO#','SO#']], use_container_width=True)
 
-    # ─── BACK BUTTON ───────────────────────────────────────────────
+    # ─── BACK BUTTON ────────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
 
