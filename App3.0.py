@@ -160,64 +160,157 @@ if not st.session_state.authenticated:
 # -------------------------------------------
 # ---------------- HOME PAGE ----------------
 # -------------------------------------------
-# -------------------------------------------
-# ---------------- HOME PAGE ----------------
-# -------------------------------------------
-if st.session_state.page == "home":
-    # Global styling
-    st.markdown("""
-    <style>
-    html, body, [class*="css"] {
-        font-family: 'Segoe UI', sans-serif;
-    }
-    h1, h2, h3, h4 {
-        color: #003366;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-    }
-    div.stButton > button {
-        background-color: #ffffff !important;
-        border: 1px solid #ccc !important;
-        border-radius: 10px !important;
-        padding: 0.6rem 1.2rem !important;
-        font-weight: 600 !important;
-        font-size: 16px !important;
-        color: #333 !important;
-        transition: background-color 0.2s ease;
-    }
-    div.stButton > button:hover {
-        background-color: #f1f1f1 !important;
-        border-color: #999 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from datetime import date
 
-    # Logout button
-    with st.container():
+# ──────────────────────────────────────────────────────────────────────
+# Helpers & Config (same as before)
+# ──────────────────────────────────────────────────────────────────────
+status_colors = {
+    "IN TRANSIT": "#f39c12",
+    "READY":      "#2ecc71",
+    "COMPLETE":   "#3498db",
+    "ORDERED":    "#9b59b6",
+    "CANCELLED":  "#e74c3c",
+}
+
+def pick_qty(row):
+    if pd.notna(row.get('Qty')):
+        return row['Qty']
+    for col in ("Quantity", "Items"):
+        v = row.get(col)
+        if isinstance(v, list) and v:
+            return v[0]
+        if pd.notna(v):
+            return v
+    return None
+
+def flatten(v):
+    return v[0] if isinstance(v, list) and v else v
+
+def badge(s):
+    color = status_colors.get(s, "#95a5a6")
+    return (
+        f"<span style='background-color:{color}; "
+        f"color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
+    )
+
+def render_summary(show_back_button: bool):
+    load_data()
+    raw = pd.DataFrame(st.session_state.requests)
+
+    if raw.empty or "Type" not in raw.columns:
+        st.info("No Purchase Orders or Sales Orders to summarize yet.")
+        if show_back_button:
+            st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
+        st.stop()
+
+    df = raw[raw["Type"].isin(["💲", "🛒"])].copy()
+    if df.empty:
+        st.info("No Purchase Orders or Sales Orders to summarize yet.")
+        if show_back_button:
+            st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
+        st.stop()
+
+    # Clean & enrich
+    df["Status"]   = df["Status"].astype(str).str.strip()
+    df["Date"]     = pd.to_datetime(df["Date"], errors="coerce")
+    df["ETA Date"] = pd.to_datetime(df["ETA Date"], errors="coerce")
+    df["Ref#"]     = df.apply(
+        lambda r: r["Invoice"] if r["Type"]=="💲" else r["Order#"], axis=1
+    )
+    today          = pd.Timestamp(date.today())
+    overdue_mask   = (df["ETA Date"] < today) & ~df["Status"].isin(["READY","CANCELLED"])
+    due_today_mask = (df["ETA Date"] == today) & (df["Status"]!="CANCELLED")
+
+    # 1) Key Metrics
+    st.subheader("Key Metrics")
+    cols = st.columns(4)
+    cols[0].metric("Total Requests",   len(df))
+    cols[1].metric("Active Requests",  df[~df["Status"].isin(["COMPLETE","CANCELLED"])].shape[0])
+    cols[2].metric("Overdue Requests", df[overdue_mask].shape[0])
+    cols[3].metric("Due Today",        df[due_today_mask].shape[0])
+    st.markdown("---")
+
+    # 2) Pie Chart + Tables
+    count_df = df["Status"].value_counts().rename_axis("Status").reset_index(name="Count")
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.subheader("Status Distribution")
+        fig = px.pie(count_df, names="Status", values="Count",
+                     color="Status", color_discrete_map=status_colors)
+        fig.update_traces(textinfo="label+value", textposition="inside")
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        st.subheader("Due Today (ETA = today)")
+        due = df[due_today_mask].copy()
+        if not due.empty:
+            due["Qty"]         = due.apply(pick_qty, axis=1)
+            due["Description"] = due["Description"].apply(flatten)
+            disp = due[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
+            disp["Status"] = disp["Status"].apply(badge)
+            st.markdown(disp.to_html(index=False, escape=False), unsafe_allow_html=True)
+        else:
+            st.info("No POs/SOs due today.")
+        st.markdown("---")
+
+        st.subheader("Overdue Requests (PO & SO)")
+        od = df[overdue_mask].copy()
+        if not od.empty:
+            od["Qty"]         = od.apply(pick_qty, axis=1)
+            od["Description"] = od["Description"].apply(flatten)
+            disp = od[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
+            disp["Status"] = disp["Status"].apply(badge)
+            st.markdown(disp.to_html(index=False, escape=False), unsafe_allow_html=True)
+        else:
+            st.info("No overdue POs/SOs.")
+
+    if show_back_button:
+        st.markdown("---")
+        st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
+
+# ──────────────────────────────────────────────────────────────────────
+# ---------------- HOME PAGE ----------------
+# ──────────────────────────────────────────────────────────────────────
+if st.session_state.page == "home":
+    # your global CSS for Segoe UI, buttons, etc.
+
+    # split into two columns: buttons | summary
+    left, right = st.columns([1, 2], gap="large")
+
+    with left:
+        st.markdown("# 🏠 Help Center")
+        st.markdown(f"Logged in as: **{st.session_state.user_name}**")
         if st.button("🚪 Log Out", key="home_logout"):
+            st.session_state.page = "login"
             st.session_state.authenticated = False
             st.session_state.user_name = ""
-            st.session_state.page = "login"
             st.rerun()
 
-    st.markdown("# 🏠 Welcome to the Help Center")
-    st.markdown(f"Logged in as: **{st.session_state.user_name}**")
-    st.markdown("<hr style='margin: 1rem 0;'>", unsafe_allow_html=True)
+        st.markdown("<hr>", unsafe_allow_html=True)
+        if st.button("📝 View Requerimientos Clientes", key="home_view_reqs"):
+            st.session_state.page = "req_list"; st.rerun()
+        if st.button("📋 View All Purchase/Sales Orders", key="home_view_orders"):
+            st.session_state.page = "requests";  st.rerun()
+        # you can keep the standalone Summary button if you like:
+        if st.button("📊 Summary", key="home_summary"):
+            st.session_state.page = "summary";   st.rerun()
 
-    # ── Three buttons on Home ────────────────────────────────
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("📝 View Requerimientos Clientes", use_container_width=True, key="home_view_reqs"):
-            st.session_state.page = "req_list"
-            st.rerun()
-    with col3:
-        if st.button("📊 Summary", use_container_width=True, key="home_summary"):
-            st.session_state.page = "summary"
-            st.rerun()
-    with col2:
-        if st.button("📋 View All Purchase/Sales Orders", use_container_width=True, key="home_view_orders"):
-            st.session_state.page = "requests"
-            st.rerun()
+    with right:
+        # ←— embed the full summary view here
+        render_summary(show_back_button=False)
+
+# ──────────────────────────────────────────────────────────────────────
+# --------------- STANDALONE SUMMARY PAGE ----------------
+# ──────────────────────────────────────────────────────────────────────
+elif st.session_state.page == "summary":
+    render_summary(show_back_button=True)
+
 
 #####
 
