@@ -217,7 +217,8 @@ if st.session_state.page == "home":
             st.rerun()
 
 #####
-    elif st.session_state.page == "summary":
+
+elif st.session_state.page == "summary":
     import pandas as pd
     import plotly.express as px
     from datetime import date
@@ -303,10 +304,6 @@ if st.session_state.page == "home":
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
-
-# -------------------------------------------
-# --------------- SUMMARY PAGE --------------
-# -------------------------------------------
 
 
  ########
