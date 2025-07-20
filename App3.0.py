@@ -317,7 +317,7 @@ elif st.session_state.page == "requests":
     from streamlit_autorefresh import st_autorefresh
 
     # ─── CURRENT USER & UNREAD LOGIC ──────────────────────────────
-    user = st.session_state.user_name  # whoever is logged in
+    user = st.session_state.user_name
 
     # ─── STATE FOR OVERLAYS ───────────────────────────────────────
     if "show_new_po" not in st.session_state:
@@ -495,6 +495,12 @@ elif st.session_state.page == "requests":
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
     load_data()
 
+    # ─── FIRE OVERLAYS IF REQUESTED ───────────────────────────────
+    if st.session_state.show_new_po:
+        purchase_order_dialog()
+    if st.session_state.show_new_so:
+        sales_order_dialog()
+
     # ─── FILTERS ───────────────────────────────────────────────────
     col1, col2, col3 = st.columns([3,2,2])
     with col1:
@@ -504,7 +510,7 @@ elif st.session_state.page == "requests":
     with col3:
         type_filter = st.selectbox("Request type", ["All","💲 Purchase","🛒 Sales"])
 
-    # ─── BUILD & SORT FILTERED_LIST ────────────────────────────────
+    # ─── BUILD & SORT FILTERED LIST ────────────────────────────────
     filtered_requests = [
         r for r in st.session_state.requests
         if r.get("Type") != "📑"
@@ -524,11 +530,11 @@ elif st.session_state.page == "requests":
     for req in filtered_requests:
         row = {"Type": req["Type"]}
         if req["Type"] == "💲":
-            row["Ref#"]      = req.get("Invoice", "")
-            row["Tracking#"] = req.get("Order#", "")
+            row["Ref#"]      = req.get("Invoice","")
+            row["Tracking#"] = req.get("Order#","")
         else:
-            row["Ref#"]      = req.get("Order#", "")
-            row["Tracking#"] = req.get("Invoice", "")
+            row["Ref#"]      = req.get("Order#","")
+            row["Tracking#"] = req.get("Invoice","")
         for k,v in req.items():
             kl = k.lower()
             if kl in ("order#","invoice","comments","statushistory","attachments","type"):
@@ -557,7 +563,6 @@ elif st.session_state.page == "requests":
 
     # ─── DISPLAY TABLE OR WARNING ──────────────────────────────────
     if filtered_requests:
-        # ─── TABLE STYLING ─────────────────────────────────────────
         st.markdown("""
         <style>
         .header-row   { font-weight:bold; font-size:18px; padding:0.5rem 0; }
@@ -626,7 +631,6 @@ elif st.session_state.page == "requests":
                     go_to("detail")
                 if a2.button("❌", key=f"delete_{i}"):
                     delete_request(idx)
-
     else:
         st.warning("No matching requests found.")
 
