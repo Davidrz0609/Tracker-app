@@ -274,7 +274,7 @@ elif st.session_state.page == "summary":
             "CANCELLED":  "#e74c3c",
         }
 
-        # ─── 3. INTERACTIVE PIE CHART (raw counts) ─────────────────────
+        # ─── 3. INTERACTIVE PIE CHART (raw counts only) ────────────────
         fig = px.pie(
             count_df,
             names="Status",
@@ -285,10 +285,10 @@ elif st.session_state.page == "summary":
         )
         fig.update_traces(textposition='inside', textinfo='value')
 
-        # this both **renders** the chart and **captures** clicks
+        # plotly_events both renders the chart and captures clicks
         clicked = plotly_events(fig, click_event=True, key="status_pie")
 
-        # redirect on any slice click
+        # if you click any slice, go back to PO/SO
         if clicked:
             go_to("requests")
 
