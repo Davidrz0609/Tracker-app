@@ -222,7 +222,6 @@ elif st.session_state.page == "summary":
     import pandas as pd
     import plotly.express as px
     from datetime import date
-    from streamlit_plotly_events import plotly_events
 
     # ─── HEADER ────────────────────────────────────────────────────
     st.markdown("# 📊 Summary (PO & SO)")
@@ -234,10 +233,10 @@ elif st.session_state.page == "summary":
 
     if df.empty:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
-        st.stop()  # stop further execution of this page
+        st.stop()
 
     # ─── CLEAN & PREPARE ───────────────────────────────────────────
-    df['Status'] = df['Status'].astype(str).str.strip()
+    df['Status']   = df['Status'].astype(str).str.strip()
     df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
     df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
     df['Ref#']     = df.apply(
@@ -258,7 +257,7 @@ elif st.session_state.page == "summary":
     c3.metric("Overdue Requests", overdue_requests)
     st.markdown("---")
 
-    # ─── BUILD THE COUNT DATAFRAME ────────────────────────────────
+    # ─── BUILD COUNT DATAFRAME ────────────────────────────────────
     count_df = (
         df['Status']
           .value_counts()
@@ -266,7 +265,7 @@ elif st.session_state.page == "summary":
           .reset_index(name='Count')
     )
 
-    # ─── PIE CHART SETUP ──────────────────────────────────────────
+    # ─── PIE CHART (STATIC) ───────────────────────────────────────
     status_colors = {
         "IN TRANSIT": "#f39c12",
         "READY":      "#2ecc71",
@@ -284,12 +283,7 @@ elif st.session_state.page == "summary":
         title="Status Distribution"
     )
     fig.update_traces(textposition='inside', textinfo='value')
-
-    # ─── RENDER & CAPTURE CLICKS ─────────────────────────────────
-    clicked = plotly_events(fig, click_event=True, key="status_pie")
-    if clicked:
-        go_to("requests")
-
+    st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
 
     # ─── OVERDUE REQUESTS TABLE ───────────────────────────────────
