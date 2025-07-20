@@ -257,8 +257,15 @@ elif st.session_state.page == "summary":
         c3.metric("Overdue Requests", overdue_requests)
         st.markdown("---")
 
-        # ─── 2. Interactive Pie Chart ─────────────────────────────────
-        status_counts = df['Status'].value_counts()
+        # ─── 2. Interactive Plotly Pie ────────────────────────────────
+        # build a small DataFrame of counts
+        count_df = (
+            df['Status']
+            .value_counts()
+            .reset_index()
+            .rename(columns={'index':'Status', 'Status':'Count'})
+        )
+
         status_colors = {
             "IN TRANSIT": "#f39c12",
             "READY":      "#2ecc71",
@@ -267,24 +274,24 @@ elif st.session_state.page == "summary":
             "CANCELLED":  "#e74c3c",
         }
 
-        # build the Plotly figure
         fig = px.pie(
-            names=status_counts.index,
-            values=status_counts.values,
-            color=status_counts.index,
+            count_df,
+            names='Status',
+            values='Count',
+            color='Status',
             color_discrete_map=status_colors,
             title="Status Distribution"
         )
         fig.update_traces(textposition='inside', textinfo='percent+label')
 
-        # render & capture clicks
-        selected = plotly_events(fig, click_event=True, key="status_pie")
-        st.plotly_chart(fig, use_container_width=True)
-        st.markdown("---")
+        # this both renders the chart *and* captures click events
+        clicked = plotly_events(fig, click_event=True, key="status_pie")
 
-        # if user clicked anywhere on the pie, redirect back to PO/SO page
-        if selected:
+        # if the user clicked any slice, go back to the PO/SO page
+        if clicked:
             go_to("requests")
+
+        st.markdown("---")
 
         # ─── 3. Overdue Table ──────────────────────────────────────────
         od = df[overdue_mask].copy()
@@ -294,7 +301,7 @@ elif st.session_state.page == "summary":
         st.markdown("**Overdue Requests (PO & SO)**")
         st.dataframe(od[['PO#','SO#']], use_container_width=True)
 
-    # ─── NAVIGATION ────────────────────────────────────────────────
+    # ─── BACK BUTTON ───────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
 
