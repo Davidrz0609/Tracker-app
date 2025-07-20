@@ -216,7 +216,8 @@ if st.session_state.page == "home":
             st.session_state.page = "requests"
             st.rerun()
 
-#####elif st.session_state.page == "summary":
+#####
+    elif st.session_state.page == "summary":
     import pandas as pd
     import plotly.express as px
     from datetime import date
