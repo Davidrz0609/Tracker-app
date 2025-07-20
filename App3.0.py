@@ -234,10 +234,10 @@ elif st.session_state.page == "summary":
 
     if df.empty:
         st.info("No Purchase Orders or Sales Orders to summarize yet.")
-        return
+        st.stop()  # stop further execution of this page
 
     # ─── CLEAN & PREPARE ───────────────────────────────────────────
-    df['Status'] = df['Status'].astype(str).str.strip()   # remove stray spaces
+    df['Status'] = df['Status'].astype(str).str.strip()
     df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
     df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
     df['Ref#']     = df.apply(
@@ -286,7 +286,6 @@ elif st.session_state.page == "summary":
     fig.update_traces(textposition='inside', textinfo='value')
 
     # ─── RENDER & CAPTURE CLICKS ─────────────────────────────────
-    # plotly_events() both draws the chart AND returns a list on click
     clicked = plotly_events(fig, click_event=True, key="status_pie")
     if clicked:
         go_to("requests")
