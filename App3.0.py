@@ -226,7 +226,7 @@ elif st.session_state.page == "summary":
     # ─── HEADER ────────────────────────────────────────────────────
     st.markdown("# 📊 Summary (PO & SO)")
 
-    # ─── LOAD & FILTER ─────────────────────────────────────────────
+    # ─── LOAD & FILTER DATA ───────────────────────────────────────
     load_data()
     df = pd.DataFrame(st.session_state.requests)
     df = df[df['Type'].isin(['💲', '🛒'])].copy()
@@ -242,7 +242,7 @@ elif st.session_state.page == "summary":
             axis=1
         )
 
-        # compute KPI masks
+        # KPI masks
         today        = pd.Timestamp(date.today())
         overdue_mask = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
 
@@ -258,7 +258,6 @@ elif st.session_state.page == "summary":
         st.markdown("---")
 
         # ─── 2. BUILD A TRUE COUNT DATAFRAME ───────────────────────────
-        # groupby+size guarantees correct tallies
         count_df = (
             df
             .groupby("Status", dropna=False)
@@ -266,7 +265,7 @@ elif st.session_state.page == "summary":
             .reset_index(name="Count")
         )
 
-        # your custom colors
+        # custom colors
         status_colors = {
             "IN TRANSIT": "#f39c12",
             "READY":      "#2ecc71",
@@ -286,9 +285,8 @@ elif st.session_state.page == "summary":
         )
         fig.update_traces(textposition='inside', textinfo='value')
 
-        # this renders the chart *and* captures click events
+        # this both **renders** the chart and **captures** clicks
         clicked = plotly_events(fig, click_event=True, key="status_pie")
-        st.plotly_chart(fig, use_container_width=True)
 
         # redirect on any slice click
         if clicked:
@@ -307,7 +305,6 @@ elif st.session_state.page == "summary":
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
-
 
 # -------------------------------------------
 # --------------- SUMMARY PAGE --------------
