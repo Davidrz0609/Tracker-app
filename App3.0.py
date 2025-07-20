@@ -222,131 +222,197 @@ if st.session_state.page == "home":
 #####
 
 elif st.session_state.page == "summary":
+    import streamlit as st
     import pandas as pd
     import plotly.express as px
     from datetime import date
 
     # ──────────────────────────────────────────────────────────────────────
-    # Helpers & Config
+    # 0) Inject CSS for “card” style sections
+    # ──────────────────────────────────────────────────────────────────────
+    st.markdown("""
+    <style>
+      .section-box {
+        border: 1px solid #e1e4e8;
+        border-radius: 8px;
+        padding: 16px;
+        background-color: #ffffff;
+        margin-bottom: 24px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+      }
+      .section-box h4 {
+        margin-top: 0;
+        margin-bottom: 12px;
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Helpers & Config (unchanged)
     # ──────────────────────────────────────────────────────────────────────
     status_colors = {
-        "IN TRANSIT": "#f39c12",
-        "READY":      "#2ecc71",
-        "COMPLETE":   "#3498db",
-        "ORDERED":    "#9b59b6",
-        "CANCELLED":  "#e74c3c",
+      "IN TRANSIT": "#f39c12","READY": "#2ecc71",
+      "COMPLETE": "#3498db","ORDERED": "#9b59b6","CANCELLED": "#e74c3c",
     }
-
     def pick_qty(row):
-        if pd.notna(row.get('Qty')):
-            return row['Qty']
-        for col in ("Quantity","Items"):
-            v = row.get(col)
-            if isinstance(v, list) and v:
-                return v[0]
-            if pd.notna(v):
-                return v
-        return None
-
+      if pd.notna(row.get('Qty')):
+        return row['Qty']
+      for col in ("Quantity","Items"):
+        v = row.get(col)
+        if isinstance(v, list) and v: return v[0]
+        if pd.notna(v): return v
+      return None
     def flatten(v):
-        return v[0] if isinstance(v, list) and v else v
-
+      return v[0] if isinstance(v, list) and v else v
     def badge(s):
-        color = status_colors.get(s, "#95a5a6")
-        return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
+      c = status_colors.get(s, "#95a5a6")
+      return f"<span style='background:{c};color:#fff;padding:2px 6px;border-radius:4px'>{s}</span>"
 
     # ──────────────────────────────────────────────────────────────────────
-    # Load & Filter Data
+    # Load & Filter Data (unchanged)
     # ──────────────────────────────────────────────────────────────────────
     load_data()
     df = pd.DataFrame(st.session_state.requests)
     df = df[df["Type"].isin(["💲","🛒"])].copy()
     if df.empty:
-        st.info("No Purchase Orders or Sales Orders to summarize yet.")
-        st.stop()
+      st.info("No Purchase or Sales Orders yet."); st.stop()
 
     df["Status"]   = df["Status"].astype(str).str.strip()
     df["Date"]     = pd.to_datetime(df["Date"], errors="coerce")
     df["ETA Date"] = pd.to_datetime(df["ETA Date"], errors="coerce")
     df["Ref#"]     = df.apply(lambda r: r["Invoice"] if r["Type"]=="💲" else r["Order#"], axis=1)
 
-    # Precompute masks
-    today           = pd.Timestamp(date.today())
-    overdue_mask    = (df["ETA Date"] < today) & ~df["Status"].isin(["READY","CANCELLED"])
-    due_today_mask  = (df["ETA Date"] == today) & (df["Status"] != "CANCELLED")
+    today = pd.Timestamp(date.today())
+    due_mask     = (df["ETA Date"] == today) & (df["Status"] != "CANCELLED")
+    overdue_mask = (df["ETA Date"] <  today) & ~df["Status"].isin(["READY","CANCELLED"])
+
+    # flatten subsets
+    due   = df[due_mask].copy()
+    if not due.empty:
+      due["Qty"]         = due.apply(pick_qty, axis=1)
+      due["Description"] = due["Description"].apply(flatten)
+      due["Status"]      = due["Status"].apply(badge)
+
+    overdue = df[overdue_mask].copy()
+    if not overdue.empty:
+      overdue["Qty"]         = overdue.apply(pick_qty, axis=1)
+      overdue["Description"] = overdue["Description"].apply(flatten)
+      overdue["Status"]      = overdue["Status"].apply(badge)
 
     # ──────────────────────────────────────────────────────────────────────
-    # 1. KPI Row
+    # 1) KPI Row in a Card
     # ──────────────────────────────────────────────────────────────────────
-    total_requests   = len(df)
-    active_requests  = df[~df["Status"].isin(["COMPLETE","CANCELLED"])].shape[0]
-    overdue_requests = df[overdue_mask].shape[0]
-    due_today_count  = df[due_today_mask].shape[0]
+    total    = len(df)
+    active   = df[~df["Status"].str.contains("COMPLETE|CANCELLED")].shape[0]
+    od_count = overdue.shape[0]
+    due_count= due.shape[0]
 
+    st.markdown("<div class='section-box'>", unsafe_allow_html=True)
     st.subheader("Key Metrics")
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total Requests",   total_requests)
-    k2.metric("Active Requests",  active_requests)
-    k3.metric("Overdue Requests", overdue_requests)
-    k4.metric("Due Today",        due_today_count)
-    st.markdown("---")
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Total Requests", total)
+    c2.metric("Active Requests", active)
+    c3.metric("Overdue Requests", od_count)
+    c4.metric("Due Today", due_count)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Prepare Data for Chart & Tables
+    # 2) Pie Chart in a Card
     # ──────────────────────────────────────────────────────────────────────
     count_df = (
-        df["Status"]
+      df["Status"]
         .value_counts()
         .rename_axis("Status")
         .reset_index(name="Count")
     )
+    fig = px.pie(count_df, names="Status", values="Count",
+                 color="Status", color_discrete_map=status_colors)
+    fig.update_traces(textinfo="label+value", textposition="inside")
+    fig.update_layout(showlegend=False, margin=dict(l=0,r=0,t=30,b=0))
 
-    due_today = df[due_today_mask].copy()
-    if not due_today.empty:
-        due_today["Qty"]         = due_today.apply(pick_qty, axis=1)
-        due_today["Description"] = due_today["Description"].apply(flatten)
-
-    od = df[overdue_mask].copy()
-    od["Qty"]         = od.apply(pick_qty, axis=1)
-    od["Description"] = od["Description"].apply(flatten)
-
-    # ──────────────────────────────────────────────────────────────────────
-    # 2. Two-Column Layout: Pie Chart on Left, Tables on Right
-    # ──────────────────────────────────────────────────────────────────────
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Status Distribution")
-        fig = px.pie(
-            count_df,
-            names="Status",
-            values="Count",
-            color="Status",
-            color_discrete_map=status_colors,
-        )
-        fig.update_traces(textinfo="label+value", textposition="inside")
-        fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        st.subheader("Due Today (ETA = today)")
-        if not due_today.empty:
-            disp_today = due_today[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
-            disp_today["Status"] = disp_today["Status"].apply(badge)
-            st.markdown(disp_today.to_html(index=False, escape=False), unsafe_allow_html=True)
-        else:
-            st.info("No POs/SOs due today.")
-        st.markdown("---")
-
-        st.subheader("Overdue Requests (PO & SO)")
-        disp_od = od[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
-        disp_od["Status"] = disp_od["Status"].apply(badge)
-        st.markdown(disp_od.to_html(index=False, escape=False), unsafe_allow_html=True)
+    st.markdown("<div class='section-box'>", unsafe_allow_html=True)
+    st.subheader("Status Distribution")
+    st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Navigation
+    # 3) Two clickable cards for Due Today & Overdue
     # ──────────────────────────────────────────────────────────────────────
-    st.button("⬅ Back to Home", on_click=lambda: go_to("home")) 
+    cols = ["Type","Ref#","Description","Qty","Encargado","Status"]
+    due_html = due[cols].to_html(index=False, escape=False, border=0)
+    od_html  = overdue[cols].to_html(index=False, escape=False, border=0)
+
+    st.markdown("<div class='section-box'>", unsafe_allow_html=True)
+    left, right = st.columns(2)
+
+    with left:
+      st.markdown(
+        "<a href='#due-today-overlay'><h4>📅 Due Today</h4></a>",
+        unsafe_allow_html=True
+      )
+      if due.empty:
+        st.info("None due today.")
+    with right:
+      st.markdown(
+        "<a href='#overdue-overlay'><h4>⏰ Overdue</h4></a>",
+        unsafe_allow_html=True
+      )
+      if overdue.empty:
+        st.info("No overdue.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # 4) The hidden overlays (same as before, but now “card-boxed”)
+    # ──────────────────────────────────────────────────────────────────────
+    overlay_css = """
+    <style>
+      .overlay { position: fixed; top:0;left:0;width:100vw;height:100vh;
+                 background:rgba(0,0,0,0.6);display:none;
+                 justify-content:center;align-items:center;z-index:999;}
+      .overlay:target { display:flex; }
+      .overlay-content {
+        background:white; padding:24px; border-radius:8px;
+        max-width:90%; max-height:90%; overflow:auto;
+        box-shadow:0 4px 12px rgba(0,0,0,0.2);
+      }
+      .close-btn {
+        position:absolute; top:16px; right:24px;
+        font-size:24px; text-decoration:none; color:#333;
+      }
+      .overlay-content table { border-collapse:collapse; width:100%; }
+      .overlay-content th, td {
+        border:1px solid #ddd; padding:8px; text-align:left;
+      }
+      .overlay-content th { background:#f1f1f1; }
+    </style>
+    """
+    modal_html = f"""
+    {overlay_css}
+
+    <div id="due-today-overlay" class="overlay">
+      <a href="#" class="close-btn">&times;</a>
+      <div class="overlay-content">
+        <h3>📅 Due Today</h3>
+        {due_html}
+      </div>
+    </div>
+
+    <div id="overdue-overlay" class="overlay">
+      <a href="#" class="close-btn">&times;</a>
+      <div class="overlay-content">
+        <h3>⏰ Overdue Requests</h3>
+        {od_html}
+      </div>
+    </div>
+    """
+    st.markdown(modal_html, unsafe_allow_html=True)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # 5) Back to home
+    # ──────────────────────────────────────────────────────────────────────
+    st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
+
 
 ########
 elif st.session_state.page == "requests":
