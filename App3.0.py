@@ -220,11 +220,11 @@ if st.session_state.page == "home":
             st.rerun()
 
 #####
+
 elif st.session_state.page == "summary":
     import pandas as pd
     import plotly.express as px
     from datetime import date
-    from streamlit.components.v1 import html as st_html
 
     # ──────────────────────────────────────────────────────────────────────
     # Helpers & Config
@@ -236,6 +236,7 @@ elif st.session_state.page == "summary":
         "ORDERED":    "#9b59b6",
         "CANCELLED":  "#e74c3c",
     }
+
     def pick_qty(row):
         if pd.notna(row.get('Qty')):
             return row['Qty']
@@ -246,36 +247,13 @@ elif st.session_state.page == "summary":
             if pd.notna(v):
                 return v
         return None
+
     def flatten(v):
         return v[0] if isinstance(v, list) and v else v
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Inject CSS for hover-tooltips
-    # ──────────────────────────────────────────────────────────────────────
-    st.markdown("""
-    <style>
-      .hover-table td { position: relative; }
-      .hover-table tr:hover td .tooltip {
-        visibility: visible;
-        opacity: 1;
-      }
-      .tooltip {
-        visibility: hidden;
-        opacity: 0;
-        transition: opacity 0.2s;
-        position: absolute;
-        top: 100%;
-        left: 0;
-        background-color: white;
-        border: 1px solid #ccc;
-        padding: 6px;
-        border-radius: 4px;
-        z-index: 100;
-        white-space: nowrap;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-      }
-    </style>
-    """, unsafe_allow_html=True)
+    def badge(s):
+        color = status_colors.get(s, "#95a5a6")
+        return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
 
     # ──────────────────────────────────────────────────────────────────────
     # Load & Filter Data
@@ -292,28 +270,29 @@ elif st.session_state.page == "summary":
     df["ETA Date"] = pd.to_datetime(df["ETA Date"], errors="coerce")
     df["Ref#"]     = df.apply(lambda r: r["Invoice"] if r["Type"]=="💲" else r["Order#"], axis=1)
 
+    # Precompute masks
     today           = pd.Timestamp(date.today())
     overdue_mask    = (df["ETA Date"] < today) & ~df["Status"].isin(["READY","CANCELLED"])
     due_today_mask  = (df["ETA Date"] == today) & (df["Status"] != "CANCELLED")
 
+    # ──────────────────────────────────────────────────────────────────────
+    # 1. KPI Row
+    # ──────────────────────────────────────────────────────────────────────
     total_requests   = len(df)
     active_requests  = df[~df["Status"].isin(["COMPLETE","CANCELLED"])].shape[0]
     overdue_requests = df[overdue_mask].shape[0]
     due_today_count  = df[due_today_mask].shape[0]
 
-    # ──────────────────────────────────────────────────────────────────────
-    # KPI Row
-    # ──────────────────────────────────────────────────────────────────────
     st.subheader("Key Metrics")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Requests",   total_requests)
-    c2.metric("Active Requests",  active_requests)
-    c3.metric("Overdue Requests", overdue_requests)
-    c4.metric("Due Today",        due_today_count)
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Requests",   total_requests)
+    k2.metric("Active Requests",  active_requests)
+    k3.metric("Overdue Requests", overdue_requests)
+    k4.metric("Due Today",        due_today_count)
     st.markdown("---")
 
     # ──────────────────────────────────────────────────────────────────────
-    # Pie Chart
+    # Prepare Data for Chart & Tables
     # ──────────────────────────────────────────────────────────────────────
     count_df = (
         df["Status"]
@@ -321,67 +300,53 @@ elif st.session_state.page == "summary":
         .rename_axis("Status")
         .reset_index(name="Count")
     )
-    fig = px.pie(count_df, names="Status", values="Count",
-                 color="Status", color_discrete_map=status_colors)
-    fig.update_traces(textinfo="label+value", textposition="inside")
-    fig.update_layout(showlegend=False)
-    st.subheader("Status Distribution")
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown("---")
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Prepare tables with quantities & descriptions flattened
-    # ──────────────────────────────────────────────────────────────────────
     due_today = df[due_today_mask].copy()
-    due_today["Qty"] = due_today.apply(pick_qty, axis=1)
-    due_today["Description"] = due_today["Description"].apply(flatten)
+    if not due_today.empty:
+        due_today["Qty"]         = due_today.apply(pick_qty, axis=1)
+        due_today["Description"] = due_today["Description"].apply(flatten)
 
     od = df[overdue_mask].copy()
-    od["Qty"] = od.apply(pick_qty, axis=1)
+    od["Qty"]         = od.apply(pick_qty, axis=1)
     od["Description"] = od["Description"].apply(flatten)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Helper to render a hover-tooltip table
+    # 2. Two-Column Layout: Pie Chart on Left, Tables on Right
     # ──────────────────────────────────────────────────────────────────────
-    def render_hover_table(df_subset, title):
-        cols = ["Type","Ref#","Description","Qty","Encargado","Status"]
-        html = f"<h4>{title}</h4><table class='hover-table'><thead><tr>"
-        html += "".join(f"<th>{col}</th>" for col in cols)
-        html += "</tr></thead><tbody>"
-        for _, r in df_subset.iterrows():
-            # build row
-            html += "<tr>"
-            for c in cols:
-                val = r[c]
-                if c == "Status":
-                    # inject hidden tooltip div
-                    detail = (
-                      f"Requested by: {r['Encargado']}<br>"
-                      f"ETA: {r['ETA Date'].date()}<br>"
-                      f"Status: {r['Status']}"
-                    )
-                    html += (
-                      f"<td>{val}"
-                      f"<div class='tooltip'>{detail}</div>"
-                      f"</td>"
-                    )
-                else:
-                    html += f"<td>{val}</td>"
-            html += "</tr>"
-        html += "</tbody></table>"
-        return html
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Status Distribution")
+        fig = px.pie(
+            count_df,
+            names="Status",
+            values="Count",
+            color="Status",
+            color_discrete_map=status_colors,
+        )
+        fig.update_traces(textinfo="label+value", textposition="inside")
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        st.subheader("Due Today (ETA = today)")
+        if not due_today.empty:
+            disp_today = due_today[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
+            disp_today["Status"] = disp_today["Status"].apply(badge)
+            st.markdown(disp_today.to_html(index=False, escape=False), unsafe_allow_html=True)
+        else:
+            st.info("No POs/SOs due today.")
+        st.markdown("---")
+
+        st.subheader("Overdue Requests (PO & SO)")
+        disp_od = od[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
+        disp_od["Status"] = disp_od["Status"].apply(badge)
+        st.markdown(disp_od.to_html(index=False, escape=False), unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Render both tables as HTML components
+    # Navigation
     # ──────────────────────────────────────────────────────────────────────
-    st_html(render_hover_table(due_today, "Due Today (ETA = today)"), height=300)
-    st.markdown("---")
-    st_html(render_hover_table(od, "Overdue Requests (PO & SO)"), height=300)
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Back button
-    # ──────────────────────────────────────────────────────────────────────
-    st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
+    st.button("⬅ Back to Home", on_click=lambda: go_to("home")) 
 
 
 ########
