@@ -239,10 +239,6 @@ elif st.session_state.page == "summary":
     df['Status']   = df['Status'].astype(str).str.strip()
     df['Date']     = pd.to_datetime(df['Date'],     errors='coerce')
     df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
-    df['Ref#']     = df.apply(
-        lambda r: r['Invoice'] if r['Type']=='💲' else r['Order#'],
-        axis=1
-    )
 
     # ─── KPI CALCS ─────────────────────────────────────────────────
     today            = pd.Timestamp(date.today())
@@ -265,7 +261,7 @@ elif st.session_state.page == "summary":
           .reset_index(name='Count')
     )
 
-    # ─── PIE CHART (STATIC) ───────────────────────────────────────
+    # ─── STATIC PIE CHART w/ LEGEND INSIDE ────────────────────────
     status_colors = {
         "IN TRANSIT": "#f39c12",
         "READY":      "#2ecc71",
@@ -282,7 +278,23 @@ elif st.session_state.page == "summary":
         color_discrete_map=status_colors,
         title="Status Distribution"
     )
-    fig.update_traces(textposition='inside', textinfo='value')
+    # show label + raw count inside each slice
+    fig.update_traces(textinfo='label+value', textposition='inside')
+
+    # move legend inside at right-center, with slight transparency
+    fig.update_layout(
+        legend=dict(
+            orientation="v",
+            x=0.75,       # 75% across (right side)
+            y=0.5,        # halfway down
+            xanchor="center",
+            yanchor="middle",
+            bgcolor="rgba(255,255,255,0.6)",
+            bordercolor="lightgrey",
+            borderwidth=1
+        )
+    )
+
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("---")
 
@@ -297,6 +309,7 @@ elif st.session_state.page == "summary":
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 
  ########
