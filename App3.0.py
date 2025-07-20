@@ -424,7 +424,7 @@ elif st.session_state.page == "summary":
 
     with col2:
         # Due Today
-        st.subheader("Due Today (ETA = today)")
+        st.subheader("Due Today")
         due_today = df[due_today_mask].copy()
         if not due_today.empty:
             due_today["Qty"]         = due_today.apply(pick_qty, axis=1)
@@ -442,7 +442,7 @@ elif st.session_state.page == "summary":
         st.markdown("---")
 
         # Overdue
-        st.subheader("Overdue Requests (PO & SO)")
+        st.subheader("Overdue Requests")
         od = df[overdue_mask].copy()
         if not od.empty:
             od["Qty"]         = od.apply(pick_qty, axis=1)
