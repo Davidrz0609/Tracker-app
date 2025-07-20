@@ -226,7 +226,7 @@ elif st.session_state.page == "summary":
     # ─── HEADER ────────────────────────────────────────────────────
     st.markdown("# 📊 Summary (PO & SO)")
 
-    # ─── LOAD & FILTER DATA ───────────────────────────────────────
+    # ─── LOAD & FILTER ─────────────────────────────────────────────
     load_data()
     df = pd.DataFrame(st.session_state.requests)
     df = df[df['Type'].isin(['💲', '🛒'])].copy()
@@ -242,29 +242,31 @@ elif st.session_state.page == "summary":
             axis=1
         )
 
-        # compute masks & KPIs
-        today            = pd.Timestamp(date.today())
-        overdue_mask     = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
+        # compute KPI masks
+        today        = pd.Timestamp(date.today())
+        overdue_mask = (df['ETA Date'] < today) & ~df['Status'].isin(['READY','CANCELLED'])
+
+        # ─── 1. KPIs ───────────────────────────────────────────────────
         total_requests   = len(df)
         active_requests  = df[~df['Status'].isin(['COMPLETE','CANCELLED'])].shape[0]
         overdue_requests = df[overdue_mask].shape[0]
 
-        # show KPIs
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Requests",   total_requests)
         c2.metric("Active Requests",  active_requests)
         c3.metric("Overdue Requests", overdue_requests)
         st.markdown("---")
 
-        # ─── BUILD A TRUE COUNT DATAFRAME ─────────────────────────────
+        # ─── 2. BUILD A TRUE COUNT DATAFRAME ───────────────────────────
+        # groupby+size guarantees correct tallies
         count_df = (
             df
-            .groupby("Status")
+            .groupby("Status", dropna=False)
             .size()
             .reset_index(name="Count")
         )
 
-        # custom hex-colors
+        # your custom colors
         status_colors = {
             "IN TRANSIT": "#f39c12",
             "READY":      "#2ecc71",
@@ -273,7 +275,7 @@ elif st.session_state.page == "summary":
             "CANCELLED":  "#e74c3c",
         }
 
-        # ─── INTERACTIVE PIE CHART (raw counts) ───────────────────────
+        # ─── 3. INTERACTIVE PIE CHART (raw counts) ─────────────────────
         fig = px.pie(
             count_df,
             names="Status",
@@ -282,16 +284,19 @@ elif st.session_state.page == "summary":
             color_discrete_map=status_colors,
             title="Status Distribution"
         )
-        # show just the number in each slice
         fig.update_traces(textposition='inside', textinfo='value')
 
-        # render & capture click
+        # this renders the chart *and* captures click events
         clicked = plotly_events(fig, click_event=True, key="status_pie")
+        st.plotly_chart(fig, use_container_width=True)
+
+        # redirect on any slice click
         if clicked:
             go_to("requests")
+
         st.markdown("---")
 
-        # ─── OVERDUE REQUESTS TABLE ───────────────────────────────────
+        # ─── 4. OVERDUE REQUESTS TABLE ─────────────────────────────────
         od = df[overdue_mask].copy()
         od['PO#'] = od.apply(lambda r: r['Invoice'] if r['Type']=='💲' else '', axis=1)
         od['SO#'] = od.apply(lambda r: r['Order#'] if r['Type']=='🛒' else '', axis=1)
@@ -302,6 +307,7 @@ elif st.session_state.page == "summary":
     # ─── BACK TO HOME ──────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 # -------------------------------------------
 # --------------- SUMMARY PAGE --------------
