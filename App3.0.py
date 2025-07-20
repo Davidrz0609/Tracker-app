@@ -354,7 +354,7 @@ elif st.session_state.page == "summary":
         st.markdown("---")
 
         # Overdue
-        st.subheader("Overdue Requests")
+        st.subheader("Overdue")
         od = df[overdue_mask].copy()
         if not od.empty:
             od["Qty"]         = od.apply(pick_qty, axis=1)
