@@ -296,6 +296,9 @@ elif st.session_state.page == "summary":
 
         st.markdown("**Overdue Requests (PO & SO)**")
         st.dataframe(od[['PO#','SO#']], use_container_width=True)
+         # Navigation
+    if st.button("⬅ Back to Home"):
+        go_to("home")
 
 
 
