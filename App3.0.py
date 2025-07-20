@@ -222,7 +222,6 @@ if st.session_state.page == "home":
 #####
 
 elif st.session_state.page == "summary":
-    import streamlit as st
     import pandas as pd
     import plotly.express as px
     from datetime import date
@@ -257,41 +256,6 @@ elif st.session_state.page == "summary":
         return f"<span style='background-color:{color}; color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
 
     # ──────────────────────────────────────────────────────────────────────
-    # Inject full-screen modal CSS
-    # ──────────────────────────────────────────────────────────────────────
-    st.markdown("""
-    <style>
-      .overlay {
-        position: fixed;
-        top: 0; left: 0;
-        width: 100vw; height: 100vh;
-        background: rgba(0,0,0,0.5);
-        display: none;
-        justify-content: center;
-        align-items: center;
-        z-index: 9999;
-      }
-      .overlay:target { display: flex; }
-      .overlay-content {
-        background: white;
-        padding: 20px;
-        border-radius: 8px;
-        max-width: 90%;
-        max-height: 90%;
-        overflow: auto;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      }
-      .close-btn {
-        position: absolute;
-        top: 20px; right: 30px;
-        font-size: 2rem;
-        text-decoration: none;
-        color: white;
-      }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # ──────────────────────────────────────────────────────────────────────
     # Load & Filter Data
     # ──────────────────────────────────────────────────────────────────────
     load_data()
@@ -306,12 +270,13 @@ elif st.session_state.page == "summary":
     df["ETA Date"] = pd.to_datetime(df["ETA Date"], errors="coerce")
     df["Ref#"]     = df.apply(lambda r: r["Invoice"] if r["Type"]=="💲" else r["Order#"], axis=1)
 
+    # Precompute masks
     today           = pd.Timestamp(date.today())
     overdue_mask    = (df["ETA Date"] < today) & ~df["Status"].isin(["READY","CANCELLED"])
     due_today_mask  = (df["ETA Date"] == today) & (df["Status"] != "CANCELLED")
 
     # ──────────────────────────────────────────────────────────────────────
-    # 1) KPI Row
+    # 1. KPI Row
     # ──────────────────────────────────────────────────────────────────────
     total_requests   = len(df)
     active_requests  = df[~df["Status"].isin(["COMPLETE","CANCELLED"])].shape[0]
@@ -327,7 +292,7 @@ elif st.session_state.page == "summary":
     st.markdown("---")
 
     # ──────────────────────────────────────────────────────────────────────
-    # 2) Pie Chart
+    # Prepare Data for Chart & Tables
     # ──────────────────────────────────────────────────────────────────────
     count_df = (
         df["Status"]
@@ -335,84 +300,53 @@ elif st.session_state.page == "summary":
         .rename_axis("Status")
         .reset_index(name="Count")
     )
-    fig = px.pie(
-        count_df,
-        names="Status",
-        values="Count",
-        color="Status",
-        color_discrete_map=status_colors,
-    )
-    fig.update_traces(textinfo="label+value", textposition="inside")
-    fig.update_layout(showlegend=False)
-    st.subheader("Status Distribution")
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown("---")
 
-    # ──────────────────────────────────────────────────────────────────────
-    # 3) Prepare “Due Today” & “Overdue” subsets
-    # ──────────────────────────────────────────────────────────────────────
     due_today = df[due_today_mask].copy()
     if not due_today.empty:
         due_today["Qty"]         = due_today.apply(pick_qty, axis=1)
         due_today["Description"] = due_today["Description"].apply(flatten)
-        due_today["Status"]      = due_today["Status"].apply(badge)
 
-    overdue = df[overdue_mask].copy()
-    overdue["Qty"]         = overdue.apply(pick_qty, axis=1)
-    overdue["Description"] = overdue["Description"].apply(flatten)
-    overdue["Status"]      = overdue["Status"].apply(badge)
+    od = df[overdue_mask].copy()
+    od["Qty"]         = od.apply(pick_qty, axis=1)
+    od["Description"] = od["Description"].apply(flatten)
 
     # ──────────────────────────────────────────────────────────────────────
-    # 4) Two-column layout with clickable headers
+    # 2. Two-Column Layout: Pie Chart on Left, Tables on Right
     # ──────────────────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
+
     with col1:
-        # Pie already shown above (you could repeat or leave blank)
-        pass
+        st.subheader("Status Distribution")
+        fig = px.pie(
+            count_df,
+            names="Status",
+            values="Count",
+            color="Status",
+            color_discrete_map=status_colors,
+        )
+        fig.update_traces(textinfo="label+value", textposition="inside")
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
     with col2:
-        st.markdown(
-            "<a href='#due-today-overlay'><h4>📅 Due Today (ETA = today)</h4></a>",
-            unsafe_allow_html=True
-        )
+        st.subheader("Due Today (ETA = today)")
+        if not due_today.empty:
+            disp_today = due_today[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
+            disp_today["Status"] = disp_today["Status"].apply(badge)
+            st.markdown(disp_today.to_html(index=False, escape=False), unsafe_allow_html=True)
+        else:
+            st.info("No POs/SOs due today.")
         st.markdown("---")
-        st.markdown(
-            "<a href='#overdue-overlay'><h4>⏰ Overdue Requests (PO & SO)</h4></a>",
-            unsafe_allow_html=True
-        )
+
+        st.subheader("Overdue Requests (PO & SO)")
+        disp_od = od[["Type","Ref#","Description","Qty","Encargado","Status"]].copy()
+        disp_od["Status"] = disp_od["Status"].apply(badge)
+        st.markdown(disp_od.to_html(index=False, escape=False), unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────────────────
-    # 5) Render the two hidden modal divs
+    # Navigation
     # ──────────────────────────────────────────────────────────────────────
-    cols = ["Type","Ref#","Description","Qty","Encargado","Status"]
-    due_html = due_today[cols].to_html(index=False, escape=False, border=1)
-    od_html  = overdue[cols].to_html(index=False, escape=False, border=1)
-
-    modal_html = f"""
-    <!-- Due Today Modal -->
-    <div id="due-today-overlay" class="overlay">
-      <a href="#" class="close-btn">&times;</a>
-      <div class="overlay-content">
-        <h3>📅 Due Today (ETA = today)</h3>
-        {due_html}
-      </div>
-    </div>
-
-    <!-- Overdue Modal -->
-    <div id="overdue-overlay" class="overlay">
-      <a href="#" class="close-btn">&times;</a>
-      <div class="overlay-content">
-        <h3>⏰ Overdue Requests (PO & SO)</h3>
-        {od_html}
-      </div>
-    </div>
-    """
-    st.markdown(modal_html, unsafe_allow_html=True)
-
-    # ──────────────────────────────────────────────────────────────────────
-    # 6) Back button
-    # ──────────────────────────────────────────────────────────────────────
-    st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
-
+    st.button("⬅ Back to Home", on_click=lambda: go_to("home")) 
 
 ########
 elif st.session_state.page == "requests":
