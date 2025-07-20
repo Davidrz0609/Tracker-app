@@ -310,9 +310,7 @@ def _set_page(page_name):
 #####
 
 
- ########
-
-
+########
 elif st.session_state.page == "requests":
     import pandas as pd
     import json
