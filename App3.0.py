@@ -322,7 +322,7 @@ elif st.session_state.page == "summary":
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Status Distributio Pie")
+        st.subheader("Status Distribution Pie")
         fig = px.pie(
             count_df,
             names="Status",
@@ -369,14 +369,8 @@ elif st.session_state.page == "summary":
             )
         else:
             st.info("No overdue POs/SOs.")
-
-       
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Navigation
-    # ──────────────────────────────────────────────────────────────────────
-    
-    st.markdown("---")
+            st.markdown("---")
+            
     st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
 
 
