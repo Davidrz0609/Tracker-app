@@ -54,10 +54,11 @@ def get_snow_conn():
     return snowflake.connector.connect(
         user      = "DAVIDRESTREPOZAPATA109",
         password  = "Pa43666307*12345",
-        account   = "FARSUDC‑LH43603",
-        warehouse = "YOUR_WAREHOUSE",   # replace with your warehouse name
+        host      = "FARSUDC-LH43603.snowflakecomputing.com",
+        warehouse = "YOUR_WAREHOUSE",
         database  = "TITOS_APP",
-        schema    = "HELP_CENTER"
+        schema    = "HELP_CENTER",
+        role      = "MY_ROLE"
     )
 
 def load_data():
