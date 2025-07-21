@@ -4,7 +4,7 @@ import pandas as pd
 import json
 import os
 from datetime import date, datetime
-#from streamlit_autorefresh import st_autorefresh
+from streamlit_autorefresh import st_autorefresh
 
 # -------------------------------------------
 # ------- APP CONFIG + STATE INITIALIZATION --
