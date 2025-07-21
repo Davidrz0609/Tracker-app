@@ -52,7 +52,7 @@ def format_status_badge(status):
 
 def get_snow_conn():
     return snowflake.connector.connect(
-        user      = "davidrestrepozapata109",
+        user      = "DAVIDRESTREPOZAPATA109",
         password  = "Pa43666307*12345",
         account   = "FARSUDC‑LH43603",
         warehouse = "YOUR_WAREHOUSE",   # replace with your warehouse name
