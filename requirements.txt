@@ -5,4 +5,4 @@ openpyxl
 pdfplumber
 matplotlib
 streamlit-plotly-events
-
+snowflake-connector-python
