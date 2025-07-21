@@ -1,3 +1,4 @@
+import snowflake.connector
 import streamlit as st
 import pandas as pd
 import json
@@ -10,14 +11,9 @@ from streamlit_autorefresh import st_autorefresh
 # -------------------------------------------
 st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
 
-REQUESTS_FILE = "requests.json"
-COMMENTS_FILE = "comments.json"
 UPLOADS_DIR = "uploads"
-
-# Ensure the uploads directory exists
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-# Example users (username: password)
 VALID_USERS = {
     "Andres": "123",
     "Marcela": "123",
@@ -26,19 +22,18 @@ VALID_USERS = {
     "David": "123",
     "John": "123",
     "Sabrina": "123",
-    "Thea": "123", 
-    "Bodega": "123",    
+    "Thea": "123",
+    "Bodega": "123",
 }
 
-# Helper: Colored Status Badge
 def format_status_badge(status):
     status = status.upper()
     color_map = {
         "IN TRANSIT": "#f39c12",
-        "READY": "#2ecc71",
-        "COMPLETE": "#3498db",
-        "ORDERED": "#9b59b6",
-        "CANCELLED": "#e74c3c",
+        "READY":      "#2ecc71",
+        "COMPLETE":   "#3498db",
+        "ORDERED":    "#9b59b6",
+        "CANCELLED":  "#e74c3c",
     }
     color = color_map.get(status, "#7f8c8d")
     return f"""
@@ -55,69 +50,88 @@ def format_status_badge(status):
 
 # Persistence Helpers
 
+def get_snow_conn():
+    return snowflake.connector.connect(
+        user      = "davidrestrepozapata109",
+        password  = "Pa43666307*12345",
+        account   = "LH43603",
+        warehouse = "YOUR_WAREHOUSE",   # replace with your warehouse name
+        database  = "TITOS_APP",
+        schema    = "HELP_CENTER"
+    )
+
 def load_data():
-    # Load requests
-    if os.path.exists(REQUESTS_FILE) and os.path.getsize(REQUESTS_FILE) > 0:
-        try:
-            with open(REQUESTS_FILE, "r") as f:
-                st.session_state.requests = json.load(f)
-        except json.JSONDecodeError:
-            st.session_state.requests = []
-    else:
-        st.session_state.requests = []
-
-    # Load comments safely
-    if os.path.exists(COMMENTS_FILE) and os.path.getsize(COMMENTS_FILE) > 0:
-        try:
-            with open(COMMENTS_FILE, "r") as f:
-                st.session_state.comments = json.load(f)
-        except json.JSONDecodeError:
-            st.session_state.comments = {}
-    else:
-        st.session_state.comments = {}
-
+    conn = get_snow_conn()
+    cur  = conn.cursor()
+    # load all requests
+    cur.execute("SELECT ID, PAYLOAD FROM HELP_CENTER.REQUESTS ORDER BY ID")
+    st.session_state.requests = [row[1] for row in cur.fetchall()]
+    # load all comments
+    cur.execute("SELECT REQUEST_ID, PAYLOAD FROM HELP_CENTER.COMMENTS ORDER BY CREATED")
+    comments = {}
+    for req_id, payload in cur.fetchall():
+        comments.setdefault(str(req_id), []).append(payload)
+    st.session_state.comments = comments
+    cur.close()
+    conn.close()
 
 def save_data():
-    with open(REQUESTS_FILE, "w") as f:
-        json.dump(st.session_state.requests, f, indent=2)
-    with open(COMMENTS_FILE, "w") as f:
-        json.dump(st.session_state.comments, f, indent=2)
-
+    # no‑op when using Snowflake
+    pass
 
 def add_request(data):
     idx = len(st.session_state.requests)
     st.session_state.requests.append(data)
     st.session_state.comments[str(idx)] = []
-    save_data()
-
+    conn = get_snow_conn()
+    cur  = conn.cursor()
+    cur.execute(
+        "INSERT INTO HELP_CENTER.REQUESTS (PAYLOAD) VALUES (PARSE_JSON(%s))",
+        (json.dumps(data),)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def add_comment(index, author, text="", attachment=None):
     key = str(index)
-    if key not in st.session_state.comments:
-        st.session_state.comments[key] = []
-    comment_entry = {
+    st.session_state.comments.setdefault(key, [])
+    entry = {
         "author": author,
-        "text": text,
-        "when": datetime.now().strftime("%Y-%m-%d %H:%M")
+        "text":   text,
+        "when":   datetime.now().strftime("%Y-%m-%d %H:%M")
     }
     if attachment:
-        comment_entry["attachment"] = attachment
-    st.session_state.comments[key].append(comment_entry)
-    save_data()
-
+        entry["attachment"] = attachment
+    st.session_state.comments[key].append(entry)
+    conn = get_snow_conn()
+    cur  = conn.cursor()
+    cur.execute(
+        "INSERT INTO HELP_CENTER.COMMENTS (REQUEST_ID, PAYLOAD) VALUES (%s, PARSE_JSON(%s))",
+        (index, json.dumps(entry))
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        # Re-index
-        st.session_state.comments = {str(i): st.session_state.comments.get(str(i), [])
-                                     for i in range(len(st.session_state.requests))}
-        save_data()
+        st.session_state.comments = {
+            str(i): st.session_state.comments.get(str(i), [])
+            for i in range(len(st.session_state.requests))
+        }
+        conn = get_snow_conn()
+        cur  = conn.cursor()
+        cur.execute("DELETE FROM HELP_CENTER.REQUESTS WHERE ID = %s", (index,))
+        cur.execute("DELETE FROM HELP_CENTER.COMMENTS WHERE REQUEST_ID = %s", (index,))
+        conn.commit()
+        cur.close()
+        conn.close()
         st.success("🗑️ Request deleted successfully.")
         st.session_state.page = "requests"
         st.rerun()
-
 
 def go_to(page):
     st.session_state.page = page
