@@ -1,4 +1,3 @@
-import snowflake.connector
 import streamlit as st
 import pandas as pd
 import json
@@ -11,9 +10,14 @@ from streamlit_autorefresh import st_autorefresh
 # -------------------------------------------
 st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
 
+REQUESTS_FILE = "requests.json"
+COMMENTS_FILE = "comments.json"
 UPLOADS_DIR = "uploads"
+
+# Ensure the uploads directory exists
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
+# Example users (username: password)
 VALID_USERS = {
     "Andres": "123",
     "Marcela": "123",
@@ -22,18 +26,19 @@ VALID_USERS = {
     "David": "123",
     "John": "123",
     "Sabrina": "123",
-    "Thea": "123",
-    "Bodega": "123",
+    "Thea": "123", 
+    "Bodega": "123",    
 }
 
+# Helper: Colored Status Badge
 def format_status_badge(status):
     status = status.upper()
     color_map = {
         "IN TRANSIT": "#f39c12",
-        "READY":      "#2ecc71",
-        "COMPLETE":   "#3498db",
-        "ORDERED":    "#9b59b6",
-        "CANCELLED":  "#e74c3c",
+        "READY": "#2ecc71",
+        "COMPLETE": "#3498db",
+        "ORDERED": "#9b59b6",
+        "CANCELLED": "#e74c3c",
     }
     color = color_map.get(status, "#7f8c8d")
     return f"""
@@ -50,93 +55,74 @@ def format_status_badge(status):
 
 # Persistence Helpers
 
-def get_snow_conn():
-    return snowflake.connector.connect(
-        user      = "DAVIDRESTREPOZAPATA109",
-        password  = "Pa43666307*12345",
-        host      = "FARSUDC-LH43603",
-        #warehouse = "YOUR_WAREHOUSE",
-        database  = "TITOS_APP",
-        schema    = "HELP_CENTER",
-        role      = "MY_ROLE"
-    )
-
 def load_data():
-    conn = get_snow_conn()
-    cur  = conn.cursor()
-    # load all requests
-    cur.execute("SELECT ID, PAYLOAD FROM HELP_CENTER.REQUESTS ORDER BY ID")
-    st.session_state.requests = [row[1] for row in cur.fetchall()]
-    # load all comments
-    cur.execute("SELECT REQUEST_ID, PAYLOAD FROM HELP_CENTER.COMMENTS ORDER BY CREATED")
-    comments = {}
-    for req_id, payload in cur.fetchall():
-        comments.setdefault(str(req_id), []).append(payload)
-    st.session_state.comments = comments
-    cur.close()
-    conn.close()
+    # Load requests
+    if os.path.exists(REQUESTS_FILE) and os.path.getsize(REQUESTS_FILE) > 0:
+        try:
+            with open(REQUESTS_FILE, "r") as f:
+                st.session_state.requests = json.load(f)
+        except json.JSONDecodeError:
+            st.session_state.requests = []
+    else:
+        st.session_state.requests = []
+
+    # Load comments safely
+    if os.path.exists(COMMENTS_FILE) and os.path.getsize(COMMENTS_FILE) > 0:
+        try:
+            with open(COMMENTS_FILE, "r") as f:
+                st.session_state.comments = json.load(f)
+        except json.JSONDecodeError:
+            st.session_state.comments = {}
+    else:
+        st.session_state.comments = {}
+
 
 def save_data():
-    # no‑op when using Snowflake
-    pass
+    with open(REQUESTS_FILE, "w") as f:
+        json.dump(st.session_state.requests, f, indent=2)
+    with open(COMMENTS_FILE, "w") as f:
+        json.dump(st.session_state.comments, f, indent=2)
+
 
 def add_request(data):
     idx = len(st.session_state.requests)
     st.session_state.requests.append(data)
     st.session_state.comments[str(idx)] = []
-    conn = get_snow_conn()
-    cur  = conn.cursor()
-    cur.execute(
-        "INSERT INTO HELP_CENTER.REQUESTS (PAYLOAD) VALUES (PARSE_JSON(%s))",
-        (json.dumps(data),)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    save_data()
+
 
 def add_comment(index, author, text="", attachment=None):
     key = str(index)
-    st.session_state.comments.setdefault(key, [])
-    entry = {
+    if key not in st.session_state.comments:
+        st.session_state.comments[key] = []
+    comment_entry = {
         "author": author,
-        "text":   text,
-        "when":   datetime.now().strftime("%Y-%m-%d %H:%M")
+        "text": text,
+        "when": datetime.now().strftime("%Y-%m-%d %H:%M")
     }
     if attachment:
-        entry["attachment"] = attachment
-    st.session_state.comments[key].append(entry)
-    conn = get_snow_conn()
-    cur  = conn.cursor()
-    cur.execute(
-        "INSERT INTO HELP_CENTER.COMMENTS (REQUEST_ID, PAYLOAD) VALUES (%s, PARSE_JSON(%s))",
-        (index, json.dumps(entry))
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+        comment_entry["attachment"] = attachment
+    st.session_state.comments[key].append(comment_entry)
+    save_data()
+
 
 def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
         st.session_state.comments.pop(str(index), None)
-        st.session_state.comments = {
-            str(i): st.session_state.comments.get(str(i), [])
-            for i in range(len(st.session_state.requests))
-        }
-        conn = get_snow_conn()
-        cur  = conn.cursor()
-        cur.execute("DELETE FROM HELP_CENTER.REQUESTS WHERE ID = %s", (index,))
-        cur.execute("DELETE FROM HELP_CENTER.COMMENTS WHERE REQUEST_ID = %s", (index,))
-        conn.commit()
-        cur.close()
-        conn.close()
+        # Re-index
+        st.session_state.comments = {str(i): st.session_state.comments.get(str(i), [])
+                                     for i in range(len(st.session_state.requests))}
+        save_data()
         st.success("🗑️ Request deleted successfully.")
         st.session_state.page = "requests"
         st.rerun()
 
+
 def go_to(page):
     st.session_state.page = page
     st.rerun()
+
 
 # Initialize session state keys
 if "authenticated" not in st.session_state:
@@ -172,9 +158,6 @@ if not st.session_state.authenticated:
 
 
 
-# -------------------------------------------
-# ---------------- HOME PAGE ----------------
-# -------------------------------------------
 # -------------------------------------------
 # ---------------- HOME PAGE ----------------
 # -------------------------------------------
@@ -232,164 +215,100 @@ if st.session_state.page == "home":
     with col2:
         if st.button("📋 View All Purchase/Sales Orders", use_container_width=True, key="home_view_orders"):
             st.session_state.page = "requests"
-            st.rerun() 
+            st.rerun()
 
-
-
-
-#####
+# -------------------------------------------
+# --------------- SUMMARY PAGE --------------
+# -------------------------------------------
 
 elif st.session_state.page == "summary":
     import pandas as pd
-    import plotly.express as px
+    import matplotlib.pyplot as plt
     from datetime import date
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Helpers & Config
-    # ──────────────────────────────────────────────────────────────────────
-    status_colors = {
-        "IN TRANSIT": "#f39c12",
-        "READY":      "#2ecc71",
-        "COMPLETE":   "#3498db",
-        "ORDERED":    "#9b59b6",
-        "CANCELLED":  "#e74c3c",
-    }
+    # -- SUMMARY PAGE HEADER --
+    st.markdown("# 📊 Summary")
 
-    def pick_qty(row):
-        if pd.notna(row.get('Qty')):
-            return row['Qty']
-        for col in ("Quantity", "Items"):
-            v = row.get(col)
-            if isinstance(v, list) and v:
-                return v[0]
-            if pd.notna(v):
-                return v
-        return None
-
-    def flatten(v):
-        return v[0] if isinstance(v, list) and v else v
-
-    def badge(s):
-        color = status_colors.get(s, "#95a5a6")
-        return (
-            f"<span style='background-color:{color}; "
-            f"color:white; padding:2px 6px; border-radius:4px'>{s}</span>"
-        )
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Load & Pre-Check Data
-    # ──────────────────────────────────────────────────────────────────────
+    # Ensure latest data
     load_data()
-    raw = pd.DataFrame(st.session_state.requests)
+    df = pd.DataFrame(st.session_state.requests)
 
-    # If there's no data at all, or no "Type" column, bail out
-    if raw.empty or "Type" not in raw.columns:
-        st.info("No Purchase Orders or Sales Orders to summarize yet.")
-        st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
-        st.stop()
-
-    # Only keep POs (💲) and SOs (🛒)
-    df = raw[raw["Type"].isin(["💲", "🛒"])].copy()
     if df.empty:
-        st.info("No Purchase Orders or Sales Orders to summarize yet.")
-        st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
-        st.stop()
+        st.info("No requests to summarize yet.")
+    else:
+        # Convert date columns
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df['ETA Date'] = pd.to_datetime(df['ETA Date'], errors='coerce')
+        # Uniform reference number
+        df['Ref#'] = df.apply(lambda r: r['Invoice'] if r['Type'] == '💲' else r['Order#'], axis=1)
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Clean & Enrich
-    # ──────────────────────────────────────────────────────────────────────
-    df["Status"]   = df["Status"].astype(str).str.strip()
-    df["Date"]     = pd.to_datetime(df["Date"], errors="coerce")
-    df["ETA Date"] = pd.to_datetime(df["ETA Date"], errors="coerce")
-    df["Ref#"]     = df.apply(
-        lambda r: r["Invoice"] if r["Type"] == "💲" else r["Order#"],
-        axis=1
-    )
+        # Today's date
+        today = pd.Timestamp(date.today())
 
-    today          = pd.Timestamp(date.today())
-    overdue_mask   = (df["ETA Date"] < today) & ~df["Status"].isin(["READY", "CANCELLED"])
-    due_today_mask = (df["ETA Date"] == today) & (df["Status"] != "CANCELLED")
+        # -- 1. High-Level KPIs --
+        total_requests = len(df)
+        active_requests = df[~df['Status'].isin(['COMPLETE', 'CANCELLED'])].shape[0]
+        overdue_requests = df[(df['ETA Date'] < today) & ~df['Status'].isin(['READY', 'CANCELLED'])].shape[0]
+        # Average lead time (ETA - Date)
+        df['lead_time'] = (df['ETA Date'] - df['Date']).dt.days
+        avg_lead = df['lead_time'].mean()
 
-    # ──────────────────────────────────────────────────────────────────────
-    # 1. Key Metrics Row
-    # ──────────────────────────────────────────────────────────────────────
-    st.subheader("📊 Summary")
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total Requests",   len(df))
-    k2.metric("Active Requests",  df[~df["Status"].isin(["COMPLETE", "CANCELLED"])].shape[0])
-    k3.metric("Overdue Requests", df[overdue_mask].shape[0])
-    k4.metric("Due Today",        df[due_today_mask].shape[0])
-    st.markdown("---")
-
-    # ──────────────────────────────────────────────────────────────────────
-    # 2. Status Distribution Pie
-    # ──────────────────────────────────────────────────────────────────────
-    count_df = (
-        df["Status"]
-        .value_counts()
-        .rename_axis("Status")
-        .reset_index(name="Count")
-    )
-
-    # ──────────────────────────────────────────────────────────────────────
-    # 3. Layout: Pie (left) + Tables (right)
-    # ──────────────────────────────────────────────────────────────────────
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Status Distribution Pie")
-        fig = px.pie(
-            count_df,
-            names="Status",
-            values="Count",
-            color="Status",
-            color_discrete_map=status_colors,
-        )
-        fig.update_traces(textinfo="label+value", textposition="inside")
-        fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        # Due Today
-        st.subheader("Due Today")
-        due_today = df[due_today_mask].copy()
-        if not due_today.empty:
-            due_today["Qty"]         = due_today.apply(pick_qty, axis=1)
-            due_today["Description"] = due_today["Description"].apply(flatten)
-            disp_today = due_today[
-                ["Type", "Ref#", "Description", "Qty", "Encargado", "Status"]
-            ].copy()
-            disp_today["Status"] = disp_today["Status"].apply(badge)
-            st.markdown(
-                disp_today.to_html(index=False, escape=False),
-                unsafe_allow_html=True
-            )
-        else:
-            st.info("No POs/SOs due today.")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Requests", total_requests)
+        c2.metric("Active Requests", active_requests)
+        c3.metric("Overdue Requests", overdue_requests)
+        c4.metric("Avg Lead Time (days)", f"{avg_lead:.1f}")
         st.markdown("---")
 
-        # Overdue
-        st.subheader("Overdue")
-        od = df[overdue_mask].copy()
-        if not od.empty:
-            od["Qty"]         = od.apply(pick_qty, axis=1)
-            od["Description"] = od["Description"].apply(flatten)
-            disp_od = od[
-                ["Type", "Ref#", "Description", "Qty", "Encargado", "Status"]
-            ].copy()
-            disp_od["Status"] = disp_od["Status"].apply(badge)
-            st.markdown(
-                disp_od.to_html(index=False, escape=False),
-                unsafe_allow_html=True
-            )
-        else:
-            st.info("No overdue POs/SOs.")
-            st.markdown("---")
-            
-    st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
+        # -- 2. Status Distribution (Pie Chart) --
+        status_counts = df['Status'].value_counts()
+        fig1, ax1 = plt.subplots()
+        ax1.pie(status_counts, labels=status_counts.index, autopct='%1.1f%%', startangle=90)
+        ax1.axis('equal')
+        st.pyplot(fig1)
+        st.markdown("**Status Distribution**")
+        st.markdown("---")
+
+        # -- 3. Requests Over Time (Line Chart) --
+        daily = df.groupby(df['Date'].dt.date).size()
+        fig2, ax2 = plt.subplots()
+        ax2.plot(daily.index, daily.values, marker='o')
+        ax2.set_title('Requests Over Time')
+        ax2.set_xlabel('Date')
+        ax2.set_ylabel('Count')
+        st.pyplot(fig2)
+        st.markdown("---")
+
+        # -- 4. Breakdown by Type (Bar Chart) --
+        type_counts = df['Type'].value_counts()
+        fig3, ax3 = plt.subplots()
+        ax3.bar(type_counts.index.astype(str), type_counts.values)
+        ax3.set_title('Requests by Type')
+        st.pyplot(fig3)
+        st.markdown("---")
+
+        # -- 5. Top Encargados --
+        total_by_enc = df.groupby('Encargado').size()
+        completed_by_enc = df[df['Status'] == 'COMPLETE'].groupby('Encargado').size()
+        leader_df = pd.DataFrame({'Total': total_by_enc, 'Completed': completed_by_enc}).fillna(0).astype(int)
+        st.markdown("**Top Encargados**")
+        st.table(leader_df.sort_values('Total', ascending=False).head(10))
+        st.markdown("---")
+
+        # -- 6. Overdue Requests Detail --
+        od = df[(df['ETA Date'] < today) & ~df['Status'].isin(['READY', 'CANCELLED'])]
+        od = od[['Ref#', 'ETA Date', 'Status']].copy()
+        od['Days Overdue'] = (today - od['ETA Date']).dt.days
+        st.markdown("**Overdue Requests**")
+        st.dataframe(od)
+
+    # Navigation
+    if st.button("⬅ Back to Home"):
+        go_to("home")
+        
+ ########
 
 
-########
 elif st.session_state.page == "requests":
     import pandas as pd
     import json
@@ -397,7 +316,7 @@ elif st.session_state.page == "requests":
     from streamlit_autorefresh import st_autorefresh
 
     # ─── CURRENT USER & UNREAD LOGIC ──────────────────────────────
-    user = st.session_state.user_name
+    user = st.session_state.user_name  # whoever is logged in
 
     # ─── STATE FOR OVERLAYS ───────────────────────────────────────
     if "show_new_po" not in st.session_state:
@@ -569,8 +488,8 @@ elif st.session_state.page == "requests":
                 st.session_state.show_new_so = False
                 st.rerun()
 
-    # ─── HEADER + PAGE TITLE + AUTO-REFRESH ────────────────────────
-    st.markdown("# 📋 All Purchase/Sales Orders")
+    # ─── HEADER + PAGE TITLE + REFRESH ─────────────────────────────
+    st.markdown(f"# 📋 All Purchase/Sales Orders")
     st.markdown("---")
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
     load_data()
@@ -581,68 +500,77 @@ elif st.session_state.page == "requests":
     if st.session_state.show_new_so:
         sales_order_dialog()
 
-    # ─── FILTERS ───────────────────────────────────────────────────
+    # ─── FILTERS ─────────────────────────────────────────────────
     col1, col2, col3 = st.columns([3,2,2])
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests…")
     with col2:
-        status_filter = st.selectbox("Status", ["All","COMPLETE","READY","CANCELLED","IN TRANSIT"])
+        status_filter = st.selectbox(
+            "Status",
+            ["All", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"]
+        )
     with col3:
-        type_filter = st.selectbox("Request type", ["All","💲 Purchase","🛒 Sales"])
+        type_filter = st.selectbox(
+            "Request type",
+            ["All", "💲 Purchase", "🛒 Sales"]
+        )
 
-    # ─── BUILD & SORT FILTERED LIST ────────────────────────────────
+    # ─── BUILD & SORT FILTERED_LIST ────────────────────────────────
     filtered_requests = [
         r for r in st.session_state.requests
         if r.get("Type") != "📑"
            and search_term.lower() in json.dumps(r).lower()
-           and (status_filter=="All" or r.get("Status","").upper()==status_filter)
-           and (type_filter=="All" or r.get("Type")==type_filter.split()[0])
+           and (status_filter == "All" or r.get("Status", "").upper() == status_filter)
+           and (type_filter == "All" or r.get("Type") == type_filter.split()[0])
     ]
+
     def parse_eta(r):
         try:
             return datetime.strptime(r["ETA Date"], "%Y-%m-%d").date()
         except:
             return date.max
+
     filtered_requests = sorted(filtered_requests, key=parse_eta)
 
-    # ─── EXPORT + NEW PO + NEW SO BUTTONS (ALWAYS VISIBLE) ─────────
-    flat = []
-    for req in filtered_requests:
-        row = {"Type": req["Type"]}
-        if req["Type"] == "💲":
-            row["Ref#"]      = req.get("Invoice","")
-            row["Tracking#"] = req.get("Order#","")
-        else:
-            row["Ref#"]      = req.get("Order#","")
-            row["Tracking#"] = req.get("Invoice","")
-        for k,v in req.items():
-            kl = k.lower()
-            if kl in ("order#","invoice","comments","statushistory","attachments","type"):
-                continue
-            row[k] = ";".join(map(str,v)) if isinstance(v,list) else v
-        flat.append(row)
-    df_export = pd.DataFrame(flat)
-
-    col_export, col_po, col_so = st.columns([3,1,1])
-    with col_export:
-        st.download_button(
-            "📥 Export Filtered Requests to CSV",
-            df_export.to_csv(index=False).encode("utf-8"),
-            "requests_export.csv",
-            "text/csv",
-            use_container_width=True
-        )
-    with col_po:
-        if st.button("💲 New Purchase Order", use_container_width=True):
-            st.session_state.show_new_po = True
-            st.rerun()
-    with col_so:
-        if st.button("🛒 New Sales Order", use_container_width=True):
-            st.session_state.show_new_so = True
-            st.rerun()
-
-    # ─── DISPLAY TABLE OR WARNING ──────────────────────────────────
     if filtered_requests:
+        # ─── ACTIONS ROW (EXPORT + NEW PO + NEW SO) ───────────────────
+        flat = []
+        for req in filtered_requests:
+            row = {"Type": req["Type"]}
+            if req["Type"] == "💲":
+                row["Ref#"] = req.get("Invoice", "")
+                row["Tracking#"] = req.get("Order#", "")
+            else:
+                row["Ref#"] = req.get("Order#", "")
+                row["Tracking#"] = req.get("Invoice", "")
+            for k, v in req.items():
+                kl = k.lower()
+                if kl in ("order#", "invoice", "comments", "statushistory", "attachments", "type"):
+                    continue
+                row[k] = ";".join(map(str, v)) if isinstance(v, list) else v
+            flat.append(row)
+
+        # ─── EXPORT + NEW PO + NEW SO BUTTONS ───────────────────────
+        df_export = pd.DataFrame(flat)
+        col_export, col_po, col_so = st.columns([3,1,1])
+        with col_export:
+            st.download_button(
+                "📥 Export Filtered Requests to CSV",
+                df_export.to_csv(index=False).encode("utf-8"),
+                "requests_export.csv",
+                "text/csv",
+                use_container_width=True
+            )
+        with col_po:
+            if st.button("💲 New Purchase Order", use_container_width=True):
+                st.session_state.show_new_po = True
+                st.rerun()
+        with col_so:
+            if st.button("🛒 New Sales Order", use_container_width=True):
+                st.session_state.show_new_so = True
+                st.rerun()
+
+        # ─── TABLE STYLING ──────────────────────────────────────────
         st.markdown("""
         <style>
         .header-row   { font-weight:bold; font-size:18px; padding:0.5rem 0; }
@@ -652,6 +580,7 @@ elif st.session_state.page == "requests":
         </style>
         """, unsafe_allow_html=True)
 
+        # ─── TABLE HEADER ───────────────────────────────────────────
         cols_hdr = st.columns([1,1,2,3,1,2,2,2,2,2,1])
         headers  = ["","Type","Ref#","Description","Qty","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
         for c,h in zip(cols_hdr, headers):
@@ -662,7 +591,7 @@ elif st.session_state.page == "requests":
             idx = st.session_state.requests.index(req)
             cols = st.columns([1,1,2,3,1,2,2,2,2,2,1])
 
-            # Unread badge
+            # ── UNREAD COMMENTS BUBBLE ─────────────────────────────
             comments_list = st.session_state.comments.get(str(idx), [])
             for c in comments_list:
                 c.setdefault("read_by", [])
@@ -675,7 +604,7 @@ elif st.session_state.page == "requests":
                 unsafe_allow_html=True
             )
 
-            # Data columns
+            # ── DATA COLUMNS ───────────────────────────────────────
             cols[1].markdown(f"<span class='type-icon'>{req['Type']}</span>", unsafe_allow_html=True)
             cols[2].write(req.get("Invoice","") if req["Type"]=="💲" else req.get("Order#",""))
             desc = req.get("Description",[])
@@ -699,10 +628,11 @@ elif st.session_state.page == "requests":
             cols[8].write(req.get("Shipping Method",""))
             cols[9].write(req.get("Encargado",""))
 
-            # Actions
+            # ── ACTIONS ────────────────────────────────────────────
             with cols[10]:
                 a1, a2 = st.columns([1,1])
                 if a1.button("🔍", key=f"view_{i}"):
+                    # mark as read for this user
                     for c in comments_list:
                         if c.get("author") != user and user not in c["read_by"]:
                             c["read_by"].append(user)
@@ -711,13 +641,13 @@ elif st.session_state.page == "requests":
                     go_to("detail")
                 if a2.button("❌", key=f"delete_{i}"):
                     delete_request(idx)
+
     else:
         st.warning("No matching requests found.")
 
     st.markdown("---")
     if st.button("⬅ Back to Home"):
         go_to("home")
-
 
 
 
@@ -1043,6 +973,7 @@ elif st.session_state.page == "req_list":
                         "Fecha": str(dt),
                         "Status": stt
                     })
+                    # initialize comments store for this req
                     new_idx = len(st.session_state.requests) - 1
                     st.session_state.comments[str(new_idx)] = []
                     save_data()
@@ -1080,51 +1011,40 @@ elif st.session_state.page == "req_list":
     ]
     reqs = sorted(reqs, key=lambda r: (r.get("Status","OPEN")!="OPEN", parse_fecha(r)))
 
-    # build flat list and export DataFrame regardless of count
-    flat = []
-    for r in reqs:
-        for itm in r.get("Items", []):
-            flat.append({
-                "Type":         r["Type"],
-                "Description":  itm["Description"],
-                "Target Price": itm["Target Price"],
-                "Qty":          itm["QTY"],
-                "Vendedor":     r.get("Vendedor Encargado",""),
-                "Comprador":    r.get("Comprador Encargado",""),
-                "Status":       r.get("Status","OPEN"),
-                "Date":         r.get("Fecha",""),
-                "_req_obj":     r
-            })
-
-    df_export = pd.DataFrame([
-        {k:v for k,v in row.items() if not k.startswith("_")}
-        for row in flat
-    ])
-
-    # always show export, new request, and all PO/SO buttons
-    col_export, col_new, col_all = st.columns([3,1,1])
-    with col_export:
-        st.download_button(
-            "📥 Export Filtered Requests to CSV",
-            df_export.to_csv(index=False).encode("utf-8"),
-            "req_requests.csv","text/csv",
-            use_container_width=True
-        )
-    with col_new:
-        if st.button("➕ New Requirement", key="nav_new_req", use_container_width=True):
-            st.session_state.show_new_req = True
-            st.rerun()
-    with col_all:
-        if st.button("📋 All Purchase/Sales Orders", key="nav_all_req", use_container_width=True):
-            st.session_state.page = "requests"
-            st.rerun()
-
-    # show new req dialog if toggled
-    if st.session_state.show_new_req:
-        new_req_dialog()
-
     if reqs:
-        # table styling and display
+        flat = []
+        for r in reqs:
+            for itm in r.get("Items", []):
+                flat.append({
+                    "Type":         r["Type"],
+                    "Description":  itm["Description"],
+                    "Target Price": itm["Target Price"],
+                    "Qty":          itm["QTY"],
+                    "Vendedor":     r.get("Vendedor Encargado",""),
+                    "Comprador":    r.get("Comprador Encargado",""),
+                    "Status":       r.get("Status","OPEN"),
+                    "Date":         r.get("Fecha",""),
+                    "_req_obj":     r
+                })
+
+        df_export = pd.DataFrame([{k:v for k,v in row.items() if not k.startswith("_")} for row in flat])
+        col_export, col_new, col_all = st.columns([3,1,1])
+        with col_export:
+            st.download_button("📥 Export Filtered Requests to CSV",
+                               df_export.to_csv(index=False).encode("utf-8"),
+                               "req_requests.csv","text/csv", use_container_width=True)
+        with col_new:
+            if st.button("➕ New Requirement", key="nav_new_req", use_container_width=True):
+                st.session_state.show_new_req = True
+                st.rerun()
+        with col_all:
+            if st.button("📋 All Purchase/Sales Orders", key="nav_all_req", use_container_width=True):
+                st.session_state.page = "requests"
+                st.rerun()
+
+        if st.session_state.show_new_req:
+            new_req_dialog()
+
         st.markdown("""
         <style>
           .header-row    { font-weight:bold; font-size:18px; padding:0.5rem 0; }
@@ -1135,28 +1055,36 @@ elif st.session_state.page == "req_list":
         """, unsafe_allow_html=True)
 
         hdr_cols = st.columns([0.5,0.5,1,1,1,1,1,1,1,1])
-        headers  = ["","Type","Description","Target Price","Qty","Vendedor","Comprador","Status","Date",
-                    ""]
-        for c,h in zip(hdr_cols, headers): c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
+        headers  = ["","Type","Description","Target Price","Qty","Vendedor","Comprador","Status","Date",""]
+        for c,h in zip(hdr_cols, headers):
+            c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
 
         user = st.session_state.user_name
+
         for i, row in enumerate(flat):
             cols = st.columns([0.5,0.5,1,1,1,1,1,1,1,1])
             idx  = st.session_state.requests.index(row["_req_obj"])
             comments_list = st.session_state.comments.get(str(idx), [])
+
+            # ensure read_by list exists on each comment
             for c in comments_list:
                 c.setdefault("read_by", [])
                 c.setdefault("author", "")
 
+            # only count unread _other_ users’ comments
             unread_cnt = sum(
                 1 for c in comments_list
-                if user not in c["read_by"] and c["author"] != user
+                if user not in c["read_by"]
+                   and c["author"] != user
             )
 
+            # 💬 unread badge
             cols[0].markdown(
-                f"<span class='status-open'>💬{unread_cnt}</span>" if unread_cnt>0 else "",
+                f"<span class='status-open'>💬{unread_cnt}</span>"
+                if unread_cnt>0 else "",
                 unsafe_allow_html=True
             )
+
             cols[1].markdown(f"<span class='type-icon'>{row['Type']}</span>", unsafe_allow_html=True)
             cols[2].write(row['Description'])
             cols[3].write(f"${row['Target Price']}")
@@ -1173,6 +1101,7 @@ elif st.session_state.page == "req_list":
             with cols[9]:
                 a1, a2 = st.columns([1,1])
                 if a1.button("🔍", key=f"view_{i}", use_container_width=True):
+                    # mark read for this user only on _other_ comments
                     for c in comments_list:
                         if c["author"] != user and user not in c["read_by"]:
                             c["read_by"].append(user)
@@ -1184,6 +1113,7 @@ elif st.session_state.page == "req_list":
                 if a2.button("❌", key=f"del_{i}", use_container_width=True):
                     delete_request(idx)
                     st.rerun()
+
     else:
         st.info("No hay requerimientos que coincidan.")
 
@@ -1191,7 +1121,6 @@ elif st.session_state.page == "req_list":
     if st.button("⬅ Back to Home", key="req_list_back"):
         st.session_state.page = "home"
         st.rerun()
-
 
 ########## 
 
