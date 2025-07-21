@@ -55,7 +55,7 @@ def get_snow_conn():
         user      = "DAVIDRESTREPOZAPATA109",
         password  = "Pa43666307*12345",
         host      = "FARSUDC-LH43603.snowflakecomputing.com",
-        warehouse = "YOUR_WAREHOUSE",
+        #warehouse = "YOUR_WAREHOUSE",
         database  = "TITOS_APP",
         schema    = "HELP_CENTER",
         role      = "MY_ROLE"
