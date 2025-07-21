@@ -54,7 +54,7 @@ def get_snow_conn():
     return snowflake.connector.connect(
         user      = "davidrestrepozapata109",
         password  = "Pa43666307*12345",
-        account   = "LH43603",
+        account   = "FARSUDC‑LH43603",
         warehouse = "YOUR_WAREHOUSE",   # replace with your warehouse name
         database  = "TITOS_APP",
         schema    = "HELP_CENTER"
