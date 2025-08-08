@@ -10,7 +10,7 @@ import plotly.express as px
 # ─────────────────────────────────────────────────────────────────────
 # SNAPSHOT GUARD: force users to download the live JSON every N seconds
 # ─────────────────────────────────────────────────────────────────────
-def require_snapshot_download(every_seconds: int = 120, file_basename: str = "HelpCenter_Snapshot.json"):
+def require_snapshot_download(every_seconds: int = 5, file_basename: str = "HelpCenter_Snapshot.json"):
     """
     Shows a blocking overlay (modal) that requires the user to download
     the current snapshot JSON. The overlay cannot be dismissed until they:
