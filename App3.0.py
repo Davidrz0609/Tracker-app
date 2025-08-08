@@ -495,7 +495,7 @@ if not st.session_state.authenticated:
 # ─────────────────────────────────────────────────────────────────────
 # SNAPSHOT GUARD: force users to download the live JSON every N seconds
 # ─────────────────────────────────────────────────────────────────────
-def require_snapshot_download(every_seconds: int = 120, file_basename: str = "HelpCenter_Snapshot.json"):
+def require_snapshot_download(every_seconds: int = 5, file_basename: str = "HelpCenter_Snapshot.json"):
     """
     Shows a blocking overlay (modal) that requires the user to download
     the current snapshot JSON. The overlay cannot be dismissed until they:
@@ -581,7 +581,7 @@ if st.session_state.page == "home":
     _ = st_autorefresh(interval=10_000, limit=None, key="home_heartbeat")
 
     # 🔒 Enforce the 2-minute download guard on the Home page
-    require_snapshot_download(every_seconds=120)
+    require_snapshot_download(every_seconds=5)
 
     # Global styling
     st.markdown("""
