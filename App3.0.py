@@ -8,34 +8,184 @@ from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
 
-# ----- AUTO EXPORT CONFIG (writes to ~/Downloads/Automation_Project_Titos) -----
-# ----- AUTO EXPORT CONFIG (Mac path + container-safe fallback) -----
-import os
+# ----- AUTO EXPORT CONFIG (portable: Codespaces + Streamlit Cloud + Mac) -----
 from pathlib import Path
+import os, platform
 
-# Your Mac path (what you want)
-HOST_EXPORT_DIR = Path("/Users/davidrestrepo/Downloads/Automation_Project_Titos")
+def choose_export_dir() -> Path:
+    # 1) Explicit env var wins (works great on Streamlit Cloud)
+    env = os.environ.get("HELP_CENTER_EXPORT_DIR")
+    if env:
+        p = Path(env).expanduser()
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        except Exception:
+            pass  # fall through
 
-# If running in a dev container, write inside the repo so Finder can see it
-PROJECT_ROOT = Path.cwd()                      # streamlit run from repo root
-CONTAINER_FALLBACK = PROJECT_ROOT / "exports"  # shows up next to your code
+    # 2) Local Mac dev path (your Downloads)
+    mac_path = Path.home() / "Downloads" / "Automation_Project_Titos"
+    if platform.system() == "Darwin":
+        try:
+            mac_path.mkdir(parents=True, exist_ok=True)
+            return mac_path
+        except Exception:
+            pass  # fall through
 
-# Choose export dir:
-if "HELP_CENTER_EXPORT_DIR" in os.environ:
-    EXPORT_DIR = Path(os.environ["HELP_CENTER_EXPORT_DIR"]).expanduser()
-else:
-    home = Path.home()
-    if str(home).startswith("/home/vscode") or str(home).startswith("/home/codespace"):
-        EXPORT_DIR = CONTAINER_FALLBACK
-    else:
-        EXPORT_DIR = HOST_EXPORT_DIR
+    # 3) Final fallback: a writable folder inside the repo (works in Codespaces & Streamlit Cloud)
+    p = Path.cwd() / "exports"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
-EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-
+EXPORT_DIR = choose_export_dir()
 EXPORT_ORDERS_CSV       = str(EXPORT_DIR / "orders.csv")
 EXPORT_REQUIREMENTS_CSV = str(EXPORT_DIR / "requirements.csv")
 EXPORT_COMMENTS_CSV     = str(EXPORT_DIR / "comments.csv")
 EXPORT_XLSX             = str(EXPORT_DIR / "HelpCenter_Snapshot.xlsx")
+EXPORT_JSON             = str(EXPORT_DIR / "HelpCenter_Snapshot.json")
+
+
+
+def rebuild_from_csvs():
+    """Fallback: rebuild requests/comments from the exported CSVs."""
+    import pandas as pd
+
+    reqs_by_old = {}
+
+    # Orders (PO/SO)
+    if os.path.exists(EXPORT_ORDERS_CSV) and os.path.getsize(EXPORT_ORDERS_CSV) > 0:
+        odf = pd.read_csv(EXPORT_ORDERS_CSV).fillna("")
+        for old_idx, g in odf.groupby("RequestIndex"):
+            t    = str(g["Type"].iloc[0])                 # "💲" or "🛒"
+            ref  = str(g["Ref#"].iloc[0])
+            stat = str(g["Status"].iloc[0])
+            dte  = str(g["Ordered Date"].iloc[0])
+            eta  = str(g["ETA Date"].iloc[0])
+            ship = str(g["Shipping Method"].iloc[0])
+            enc  = str(g["Encargado"].iloc[0])
+            pago = str(g["Pago"].iloc[0])
+            partner = str(g["Partner"].iloc[0])
+
+            descs  = [str(x) for x in g["Description"].tolist()]
+            qtys   = [x for x in g["Qty"].tolist()]
+            prices = [x for x in g["Price"].tolist()]
+
+            base = {
+                "Status": stat,
+                "Date": dte,
+                "ETA Date": eta,
+                "Shipping Method": ship,
+                "Encargado": enc,
+                "Pago": pago,
+                "Description": descs,
+                "Quantity": qtys,
+            }
+
+            if t == "💲":
+                req = {**base,
+                    "Type": "💲",
+                    "Invoice": ref,
+                    "Order#": "",
+                    "Cost": prices,
+                    "Proveedor": partner
+                }
+            else:
+                req = {**base,
+                    "Type": "🛒",
+                    "Order#": ref,
+                    "Invoice": "",
+                    "Sale Price": prices,
+                    "Cliente": partner
+                }
+            reqs_by_old[int(old_idx)] = req
+
+    # Requirements (📑)
+    if os.path.exists(EXPORT_REQUIREMENTS_CSV) and os.path.getsize(EXPORT_REQUIREMENTS_CSV) > 0:
+        rdf = pd.read_csv(EXPORT_REQUIREMENTS_CSV).fillna("")
+        for old_idx, g in rdf.groupby("RequestIndex"):
+            items = []
+            for _, row in g.iterrows():
+                items.append({
+                    "Description": str(row.get("Description","")),
+                    "Target Price": str(row.get("Target Price","")),
+                    "QTY": row.get("Qty","")
+                })
+            reqs_by_old[int(old_idx)] = {
+                "Type": "📑",
+                "Items": items,
+                "Vendedor Encargado": str(g["Vendedor Encargado"].iloc[0]) if "Vendedor Encargado" in g else "",
+                "Comprador Encargado": str(g["Comprador Encargado"].iloc[0]) if "Comprador Encargado" in g else "",
+                "Fecha": str(g["Fecha"].iloc[0]) if "Fecha" in g else "",
+                "Status": str(g["Status"].iloc[0]) if "Status" in g else "OPEN",
+            }
+
+    # Comments
+    comments_old = {}
+    if os.path.exists(EXPORT_COMMENTS_CSV) and os.path.getsize(EXPORT_COMMENTS_CSV) > 0:
+        cdf = pd.read_csv(EXPORT_COMMENTS_CSV).fillna("")
+        for old_idx, g in cdf.groupby("RequestIndex"):
+            lst = []
+            for _, row in g.iterrows():
+                entry = {
+                    "author": str(row.get("Author","")),
+                    "when": str(row.get("When","")),
+                    "text": str(row.get("Text","")),
+                }
+                att = str(row.get("Attachment",""))
+                if att.strip():
+                    entry["attachment"] = att
+                lst.append(entry)
+            comments_old[int(old_idx)] = lst
+
+    # Reindex requests contiguously and remap comment keys
+    sorted_pairs = sorted(reqs_by_old.items())  # [(old_idx, req), ...]
+    requests, idx_map = [], {}
+    for new_idx, (old_idx, req) in enumerate(sorted_pairs):
+        idx_map[old_idx] = new_idx
+        requests.append(req)
+
+    comments = {}
+    for old_idx, lst in comments_old.items():
+        if old_idx in idx_map:
+            comments[str(idx_map[old_idx])] = lst
+
+    return requests, comments
+
+
+def try_restore_from_snapshot():
+    """If local JSONs are empty/missing, restore from snapshot JSON, else from CSVs."""
+    # Prefer JSON snapshot (exact structure)
+    if os.path.exists(EXPORT_JSON) and os.path.getsize(EXPORT_JSON) > 0:
+        try:
+            with open(EXPORT_JSON, "r", encoding="utf-8") as f:
+                snap = json.load(f)
+            st.session_state.requests = snap.get("requests", [])
+            st.session_state.comments = snap.get("comments", {})
+            # write back the primary JSONs so normal load() works next run
+            with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(st.session_state.requests, f, ensure_ascii=False, indent=2)
+            with open(COMMENTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(st.session_state.comments, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            st.warning(f"JSON snapshot restore failed: {e}")
+
+    # Fallback: rebuild from CSVs
+    try:
+        requests, comments = rebuild_from_csvs()
+        if requests:
+            st.session_state.requests = requests
+            st.session_state.comments = comments
+            with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(requests, f, ensure_ascii=False, indent=2)
+            with open(COMMENTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(comments, f, ensure_ascii=False, indent=2)
+            return True
+    except Exception as e:
+        st.warning(f"CSV restore failed: {e}")
+
+    return False
+
 
 
 
@@ -104,56 +254,80 @@ def load_data():
     # Load requests
     if os.path.exists(REQUESTS_FILE) and os.path.getsize(REQUESTS_FILE) > 0:
         try:
-            with open(REQUESTS_FILE, "r") as f:
+            with open(REQUESTS_FILE, "r", encoding="utf-8") as f:
                 st.session_state.requests = json.load(f)
         except json.JSONDecodeError:
             st.session_state.requests = []
     else:
         st.session_state.requests = []
 
-    # Load comments safely
+    # Load comments
     if os.path.exists(COMMENTS_FILE) and os.path.getsize(COMMENTS_FILE) > 0:
         try:
-            with open(COMMENTS_FILE, "r") as f:
+            with open(COMMENTS_FILE, "r", encoding="utf-8") as f:
                 st.session_state.comments = json.load(f)
         except json.JSONDecodeError:
             st.session_state.comments = {}
     else:
         st.session_state.comments = {}
 
-from pathlib import Path
+    # --- NEW: if both are empty, try to restore from snapshot/CSVs ---
+    if not st.session_state.requests and not st.session_state.comments:
+        if try_restore_from_snapshot():
+            st.toast("Restored data from snapshot ✅", icon="✅")
 
 def export_snapshot_to_disk():
-    # Build Orders (PO/SO) — one row per item
+    """
+    Build dataframes from session state and write:
+      - CSVs: orders, requirements, comments
+      - Excel workbook with 3 sheets
+      - JSON snapshot with full structure (requests + comments)
+    Uses EXPORT_* globals if present; otherwise derives paths from EXPORT_DIR or ./exports.
+    """
+    # ── Resolve paths (robust if some globals are missing) ─────────────────────────
+    from pathlib import Path
+    export_dir = Path(globals().get("EXPORT_DIR", Path.cwd() / "exports"))
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    orders_csv    = globals().get("EXPORT_ORDERS_CSV",       str(export_dir / "orders.csv"))
+    reqs_csv      = globals().get("EXPORT_REQUIREMENTS_CSV", str(export_dir / "requirements.csv"))
+    comments_csv  = globals().get("EXPORT_COMMENTS_CSV",     str(export_dir / "comments.csv"))
+    xlsx_path     = globals().get("EXPORT_XLSX",             str(export_dir / "HelpCenter_Snapshot.xlsx"))
+    json_path     = globals().get("EXPORT_JSON",             str(export_dir / "HelpCenter_Snapshot.json"))
+
+    # ── Build Orders (PO/SO) — one row per item ───────────────────────────────────
     orders_rows = []
     for i, r in enumerate(st.session_state.get("requests", []) or []):
         t = r.get("Type")
         if t not in ("💲", "🛒"):
             continue
-        descs  = r.get("Description", []) or []
-        qtys   = r.get("Quantity", []) or []
-        prices = (r.get("Cost", []) if t == "💲" else r.get("Sale Price", [])) or []
+
+        descs  = r.get("Description") or []
+        qtys   = r.get("Quantity") or []
+        price_key = "Cost" if t == "💲" else "Sale Price"
+        prices = r.get(price_key) or []
+
         n = max(len(descs), len(qtys), len(prices), 1)
         for j in range(n):
             orders_rows.append({
                 "RequestIndex": i,
                 "Type": t,
-                "Ref#": r.get("Invoice","") if t=="💲" else r.get("Order#",""),
-                "Item #": j+1,
+                "Ref#": r.get("Invoice","") if t == "💲" else r.get("Order#",""),
+                "Item #": j + 1,
                 "Description": descs[j] if j < len(descs) else "",
-                "Qty": qtys[j] if j < len(qtys) else "",
-                "Price": prices[j] if j < len(prices) else "",
+                "Qty":         qtys[j]  if j < len(qtys)  else "",
+                "Price":       prices[j] if j < len(prices) else "",
                 "Status": r.get("Status",""),
                 "Ordered Date": r.get("Date",""),
                 "ETA Date": r.get("ETA Date",""),
                 "Shipping Method": r.get("Shipping Method",""),
                 "Encargado": r.get("Encargado",""),
-                "Partner": r.get("Proveedor","") if t=="💲" else r.get("Cliente",""),
+                "Partner": r.get("Proveedor","") if t == "💲" else r.get("Cliente",""),
                 "Pago": r.get("Pago",""),
             })
     orders_df = pd.DataFrame(orders_rows)
 
-    # Requirements (📑) — one row per item
+    # ── Requirements (📑) — one row per item ──────────────────────────────────────
     req_rows = []
     for i, r in enumerate(st.session_state.get("requests", []) or []):
         if r.get("Type") != "📑":
@@ -161,47 +335,75 @@ def export_snapshot_to_disk():
         for j, it in enumerate(r.get("Items", []) or []):
             req_rows.append({
                 "RequestIndex": i,
-                "Item #": j+1,
+                "Item #": j + 1,
                 "Description": it.get("Description",""),
                 "Target Price": it.get("Target Price",""),
                 "Qty": it.get("QTY",""),
-                "Vendedor Encargado": r.get("Vendedor Encargado",""),
+                "Vendedor Encargado":  r.get("Vendedor Encargado",""),
                 "Comprador Encargado": r.get("Comprador Encargado",""),
                 "Fecha": r.get("Fecha",""),
                 "Status": r.get("Status","OPEN"),
             })
     req_df = pd.DataFrame(req_rows)
 
-    # Comments
+    # ── Comments ──────────────────────────────────────────────────────────────────
     comments_rows = []
     for k, comments in (st.session_state.get("comments", {}) or {}).items():
+        try:
+            k_int = int(k)
+        except Exception:
+            k_int = k
         for c in comments or []:
             comments_rows.append({
-                "RequestIndex": int(k),
+                "RequestIndex": k_int,
                 "Author": c.get("author",""),
-                "When": c.get("when",""),
-                "Text": c.get("text",""),
+                "When":   c.get("when",""),
+                "Text":   c.get("text",""),
                 "Attachment": c.get("attachment",""),
             })
     comments_df = pd.DataFrame(comments_rows)
 
-    # Write files (EXPORT_* must be defined)
-    orders_df.to_csv(EXPORT_ORDERS_CSV, index=False, encoding="utf-8-sig")
-    req_df.to_csv(EXPORT_REQUIREMENTS_CSV, index=False, encoding="utf-8-sig")
-    comments_df.to_csv(EXPORT_COMMENTS_CSV, index=False, encoding="utf-8-sig")
+    # ── Write CSVs ────────────────────────────────────────────────────────────────
+    orders_df.to_csv(orders_csv, index=False, encoding="utf-8-sig")
+    req_df.to_csv(reqs_csv, index=False, encoding="utf-8-sig")
+    comments_df.to_csv(comments_csv, index=False, encoding="utf-8-sig")
 
+    # ── Write Excel (fallback if the file is open) ────────────────────────────────
     try:
-        with pd.ExcelWriter(EXPORT_XLSX) as xls:
+        with pd.ExcelWriter(xlsx_path) as xls:
             orders_df.to_excel(xls, index=False, sheet_name="Orders")
             req_df.to_excel(xls, index=False, sheet_name="Requirements")
             comments_df.to_excel(xls, index=False, sheet_name="Comments")
+        xlsx_out = xlsx_path
     except PermissionError:
-        alt = Path(EXPORT_DIR) / f"HelpCenter_Snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        with pd.ExcelWriter(alt) as xls:
+        alt = export_dir / f"HelpCenter_Snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        with pd.ExcelWriter(str(alt)) as xls:
             orders_df.to_excel(xls, index=False, sheet_name="Orders")
             req_df.to_excel(xls, index=False, sheet_name="Requirements")
             comments_df.to_excel(xls, index=False, sheet_name="Comments")
+        xlsx_out = str(alt)
         st.warning(f"Excel is open. Saved snapshot to {alt}.")
+
+    # ── Write JSON snapshot (authoritative restore source) ────────────────────────
+    try:
+        snap = {
+            "requests": st.session_state.get("requests", []),
+            "comments": st.session_state.get("comments", {})
+        }
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(snap, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.warning(f"Snapshot JSON not saved: {e}")
+
+    # Optional: return paths for logging/diagnostics
+    return {
+        "orders_csv": orders_csv,
+        "requirements_csv": reqs_csv,
+        "comments_csv": comments_csv,
+        "xlsx": xlsx_out,
+        "json": json_path,
+    }
+
 
 
 def save_data():
@@ -2021,4 +2223,3 @@ elif st.session_state.page == "req_detail":
         purchase_order_dialog()
     if st.session_state.show_new_so:
         sales_order_dialog()
-
