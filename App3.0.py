@@ -12,8 +12,12 @@ import plotly.express as px
 from pathlib import Path
 import os, platform
 
+# ----- PORTABLE EXPORT CONFIG (no secrets) -----
+from pathlib import Path
+import os, platform
+
 def choose_export_dir() -> Path:
-    # 1) Explicit env var wins (works great on Streamlit Cloud)
+    # 1) If you set HELP_CENTER_EXPORT_DIR in Streamlit Cloud (optional), use it
     env = os.environ.get("HELP_CENTER_EXPORT_DIR")
     if env:
         p = Path(env).expanduser()
@@ -23,16 +27,16 @@ def choose_export_dir() -> Path:
         except Exception:
             pass  # fall through
 
-    # 2) Local Mac dev path (your Downloads)
-    mac_path = Path.home() / "Downloads" / "Automation_Project_Titos"
+    # 2) Local Mac dev: ~/Downloads/Automation_Project_Titos
     if platform.system() == "Darwin":
+        mac_path = Path.home() / "Downloads" / "Automation_Project_Titos"
         try:
             mac_path.mkdir(parents=True, exist_ok=True)
             return mac_path
         except Exception:
             pass  # fall through
 
-    # 3) Final fallback: a writable folder inside the repo (works in Codespaces & Streamlit Cloud)
+    # 3) Fallback: repo-local ./exports (works in Codespaces & Streamlit Cloud)
     p = Path.cwd() / "exports"
     p.mkdir(parents=True, exist_ok=True)
     return p
