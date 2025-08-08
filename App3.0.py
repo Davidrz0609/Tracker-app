@@ -8,51 +8,25 @@ from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
 
-# ----- AUTO EXPORT CONFIG (writes to ~/Downloads/Automation_Project_Titos) -----
-# ----- AUTO EXPORT CONFIG (portable: Mac dev + Streamlit Cloud) -----
-import os, platform
+# ----- AUTO EXPORT CONFIG (write to repo root) -----
 from pathlib import Path
 
-def choose_export_dir() -> Path:
-    # 1) Explicit env var wins (also works on Streamlit Cloud via secrets)
-    env = os.environ.get("HELP_CENTER_EXPORT_DIR")
-    if env:
-        p = Path(env).expanduser()
-        try:
-            p.mkdir(parents=True, exist_ok=True)
-            return p
-        except Exception:
-            pass  # fall through
+PROJECT_ROOT = Path(__file__).resolve().parent       # folder that contains App3.0.py
+EXPORT_DIR = PROJECT_ROOT                            # <— root
 
-    # 2) Local Mac dev path (your Downloads)
-    mac_path = Path("/Users/davidrestrepo/Downloads/Automation_Project_Titos")
-    if platform.system() == "Darwin":
-        try:
-            mac_path.mkdir(parents=True, exist_ok=True)
-            return mac_path
-        except Exception:
-            pass  # fall through
-
-    # 3) Final fallback: a writable folder inside the repo (works on Streamlit Cloud)
-    p = Path.cwd() / "exports"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-EXPORT_DIR = choose_export_dir()
-
-# Files we write
+# Files in the root
 EXPORT_ORDERS_CSV       = str(EXPORT_DIR / "orders.csv")
 EXPORT_REQUIREMENTS_CSV = str(EXPORT_DIR / "requirements.csv")
 EXPORT_COMMENTS_CSV     = str(EXPORT_DIR / "comments.csv")
 EXPORT_XLSX             = str(EXPORT_DIR / "HelpCenter_Snapshot.xlsx")
 
-# Persistent snapshot + uploads (for restore after hibernation)
+# Persistent snapshot + uploads (also in root)
 DATA_SNAPSHOT_JSON = str(EXPORT_DIR / "data_snapshot.json")
 PERSIST_UPLOADS_DIR = EXPORT_DIR / "uploads"
 PERSIST_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-# (Optional) show where we’re writing
 st.caption(f"Auto-export folder: {EXPORT_DIR.resolve()}")
+
 
 
 
