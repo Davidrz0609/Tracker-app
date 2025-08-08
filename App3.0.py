@@ -492,9 +492,18 @@ if not st.session_state.authenticated:
 
 
 
-# FULL-SCREEN OVERLAY VERSION
+# ─────────────────────────────────────────────────────────────────────
+# SNAPSHOT GUARD: force users to download the live JSON every N seconds
+# ─────────────────────────────────────────────────────────────────────
 def require_snapshot_download(every_seconds: int = 120, file_basename: str = "HelpCenter_Snapshot.json"):
-    # state
+    """
+    Shows a blocking overlay (modal) that requires the user to download
+    the current snapshot JSON. The overlay cannot be dismissed until they:
+      1) Click the download button, then
+      2) Click 'Continue'.
+    It reappears every `every_seconds` after the last confirmation.
+    """
+    # init tracking flags
     if "snapshot_ack_ts" not in st.session_state:
         st.session_state.snapshot_ack_ts = None
     if "snapshot_dl_clicked" not in st.session_state:
@@ -502,79 +511,61 @@ def require_snapshot_download(every_seconds: int = 120, file_basename: str = "He
 
     now  = datetime.now().timestamp()
     last = st.session_state.snapshot_ack_ts
-    if last is not None and (now - last) < every_seconds:
-        return  # not due yet
+    due  = (last is None) or ((now - last) >= every_seconds)
 
-    # live snapshot
+    if not due:
+        return  # not time yet
+
+    # live snapshot from session
     snap = {
         "requests": st.session_state.get("requests", []),
         "comments": st.session_state.get("comments", {})
     }
+
+    # best-effort: also write regular disk snapshot
     try:
         export_snapshot_to_disk()
     except Exception as e:
         st.warning(f"Auto-export failed: {e}")
 
-    # --- HARD OVERLAY (covers entire viewport) ---
-    st.markdown("""
-    <style>
-      /* full screen dim */
-      #sg-mask {
-        position: fixed; inset: 0; width: 100vw; height: 100vh;
-        background: rgba(0,0,0,.65); z-index: 2147483646;
-      }
-      /* centered card */
-      #sg-card {
-        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        width: min(820px, 92vw); background: #fff; color: #111;
-        border-radius: 16px; padding: 22px 24px; box-shadow: 0 20px 40px rgba(0,0,0,.35);
-        z-index: 2147483647;
-      }
-      /* dark mode support (Streamlit var if set) */
-      @media (prefers-color-scheme: dark) {
-        #sg-card { background: var(--color-bg, #1e1e1e); color: #e6e6e6; }
-      }
-    </style>
-    """, unsafe_allow_html=True)
+    @st.dialog("⚠️ Download required", width="large")
+    def _guard():
+        st.markdown("""
+        <style>
+          [data-testid="stDialog"] { max-width: 98vw !important; }
+          [data-testid="stDialog"] button[aria-label="Close"] { display:none !important; }
+        </style>
+        """, unsafe_allow_html=True)
 
-    # mask behind
-    st.markdown('<div id="sg-mask"></div>', unsafe_allow_html=True)
-
-    # modal card (Streamlit widgets inside so they work normally)
-    with st.container():
-        st.markdown('<div id="sg-card">', unsafe_allow_html=True)
-        st.markdown("## ⚠️ Download required")
-        st.markdown("**🔐 Please download the current snapshot**")
+        st.markdown("### 🔐 Please download the current snapshot")
         st.write("To keep your data safe, download the live JSON. This prompt will reappear every **2 minutes**.")
 
-        left, right = st.columns([1, 1])
-        with left:
-            dl = st.download_button(
-                "⬇️ Download live snapshot (JSON)",
-                data=json.dumps(snap, ensure_ascii=False, indent=2),
-                file_name=file_basename,
-                mime="application/json",
-                key="force_snapshot_dl_btn",
-                use_container_width=True
-            )
-            if dl:
-                st.session_state.snapshot_dl_clicked = True
+        dl = st.download_button(
+            "⬇️ Download live snapshot (JSON)",
+            data=json.dumps(snap, ensure_ascii=False, indent=2),
+            file_name=file_basename,
+            mime="application/json",
+            key="force_snapshot_dl_btn"
+        )
+        if dl:
+            st.session_state.snapshot_dl_clicked = True
 
-        with right:
-            if st.button(
-                "✅ I downloaded it — continue",
-                disabled=not st.session_state.snapshot_dl_clicked,
-                use_container_width=True,
-                key="force_snapshot_continue_btn"
-            ):
-                st.session_state.snapshot_ack_ts = now
+        c1, c2 = st.columns([2,1])
+        with c1:
+            if last is None:
+                st.caption("First-time save required.")
+            else:
+                st.caption("After confirming, the next reminder is in 2 minutes.")
+        with c2:
+            if st.button("✅ I downloaded it — continue", disabled=not st.session_state.snapshot_dl_clicked):
+                st.session_state.snapshot_ack_ts = datetime.now().timestamp()
                 st.session_state.snapshot_dl_clicked = False
                 st.rerun()
 
-        st.caption("After confirming, the next reminder is in 2 minutes.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        # keep dialog responsive
+        _ = st_autorefresh(interval=1000, limit=None, key="snapshot_guard_tick")
 
-    # block the rest of the page
+    _guard()
     st.stop()
 
 
@@ -582,19 +573,15 @@ def require_snapshot_download(every_seconds: int = 120, file_basename: str = "He
 # ─────────────────────────────────────────────────────────────────────
 # ---------------- HOME PAGE (with locked Summary & Requerimientos) ----
 # ─────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────
-# ---------------- HOME PAGE (with locked Summary & Requerimientos) ----
-# (replace your current "if st.session_state.page == 'home':" block)
-# ─────────────────────────────────────────────────────────────────────
 SUMMARY_ALLOWED = {"Andres", "David", "Tito", "Luz"}
 REQS_DENIED     = {"Bodega"}
 
 if st.session_state.page == "home":
-    # small heartbeat so the guard pops on time even if idle here
+    # Small heartbeat so the guard pops exactly on time even if idle here
     _ = st_autorefresh(interval=10_000, limit=None, key="home_heartbeat")
 
-    # 🔒 enforce the 2-minute download guard on Home
-    require_snapshot_download(every_seconds=5)
+    # 🔒 Enforce the 2-minute download guard on the Home page
+    require_snapshot_download(every_seconds=120)
 
     # Global styling
     st.markdown("""
@@ -677,7 +664,11 @@ if st.session_state.page == "home":
         )
 
         # Upload + restore
-        uploaded = st.file_uploader("Restore from snapshot JSON", type=["json"], key="restore_uploader")
+        uploaded = st.file_uploader(
+            "Restore from snapshot JSON",
+            type=["json"],
+            key="restore_uploader"
+        )
         if uploaded and st.button("Restore now", key="restore_now_btn"):
             try:
                 data = json.load(uploaded)
