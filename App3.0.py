@@ -494,7 +494,7 @@ if not st.session_state.authenticated:
 # ─────────────────────────────────────────────────────────────────────
 # SNAPSHOT GUARD: force users to download the live JSON every N seconds
 # ─────────────────────────────────────────────────────────────────────
-def require_snapshot_download(every_seconds: int = 12600, file_basename: str = "HelpCenter_Snapshot.json"):
+def require_snapshot_download(every_seconds: int = 5, file_basename: str = "HelpCenter_Snapshot.json"):
     """
     Blocks with a modal until the user 1) downloads the JSON and 2) confirms.
     Pops back up every `every_seconds`.
@@ -571,7 +571,7 @@ if st.session_state.authenticated:
     if st.session_state.page in ("home", "summary"):
         _ = st_autorefresh(interval=10_000, limit=None, key=f"guard_heartbeat_{st.session_state.page}")
     # show the overlay everywhere (except login) every 2 minutes
-    require_snapshot_download(every_seconds=12600)
+    require_snapshot_download(every_seconds=5)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -585,7 +585,7 @@ if st.session_state.page == "home":
     _ = st_autorefresh(interval=10_000, limit=None, key="home_heartbeat")
 
     # 🔒 Enforce the 2-minute download guard on the Home page
-    require_snapshot_download(every_seconds=12600)
+    require_snapshot_download(every_seconds=5)
 
     # Global styling
     st.markdown("""
