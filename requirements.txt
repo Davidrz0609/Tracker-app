@@ -6,3 +6,8 @@ pdfplumber
 matplotlib
 streamlit-plotly-events
 snowflake-connector-python
+streamlit>=1.33
+pandas>=2.0
+plotly>=5.20
+streamlit-autorefresh>=0.0.2
+openpyxl>=3.1
