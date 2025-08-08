@@ -550,13 +550,13 @@ def require_snapshot_download(every_seconds: int = 5, file_basename: str = "Help
         if dl:
             st.session_state.snapshot_dl_clicked = True
 
-        c1, c2 = st.columns([2,2])
-        with c1:
+        left, right = st.columns([1,1])
+        with left:
             if last is None:
                 st.caption("First-time save required.")
             else:
                 st.caption("After confirming, the next reminder is in 2 minutes.")
-        with c2:
+        with right:
             if st.button("✅ I downloaded it — continue", disabled=not st.session_state.snapshot_dl_clicked):
                 st.session_state.snapshot_ack_ts = datetime.now().timestamp()
                 st.session_state.snapshot_dl_clicked = False
