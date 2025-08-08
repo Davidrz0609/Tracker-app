@@ -499,7 +499,7 @@ if not st.session_state.authenticated:
 # SNAPSHOT GUARD: force users to download the live JSON every N seconds
 # (put this near your other helpers, e.g., after export_snapshot_to_disk)
 # ─────────────────────────────────────────────────────────────────────
-def require_snapshot_download(every_seconds: int = 120, file_basename: str = "HelpCenter_Snapshot.json"):
+def require_snapshot_download(every_seconds: int = 5, file_basename: str = "HelpCenter_Snapshot.json"):
     """
     Shows a blocking overlay (modal) that requires the user to download
     the current snapshot JSON. The overlay cannot be dismissed until they:
@@ -581,14 +581,18 @@ def require_snapshot_download(every_seconds: int = 120, file_basename: str = "He
 # ─────────────────────────────────────────────────────────────────────
 # ---------------- HOME PAGE (with locked Summary & Requerimientos) ----
 # ─────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────
+# ---------------- HOME PAGE (with locked Summary & Requerimientos) ----
+# (replace your current "if st.session_state.page == 'home':" block)
+# ─────────────────────────────────────────────────────────────────────
 SUMMARY_ALLOWED = {"Andres", "David", "Tito", "Luz"}
 REQS_DENIED     = {"Bodega"}
 
 if st.session_state.page == "home":
-    # Small heartbeat so the guard pops exactly on time even if idle here
+    # small heartbeat so the guard pops on time even if idle here
     _ = st_autorefresh(interval=10_000, limit=None, key="home_heartbeat")
 
-    # 🔒 Enforce the 2-minute download guard on the Home page
+    # 🔒 enforce the 2-minute download guard on Home
     require_snapshot_download(every_seconds=5)
 
     # Global styling
@@ -672,11 +676,7 @@ if st.session_state.page == "home":
         )
 
         # Upload + restore
-        uploaded = st.file_uploader(
-            "Restore from snapshot JSON",
-            type=["json"],
-            key="restore_uploader"
-        )
+        uploaded = st.file_uploader("Restore from snapshot JSON", type=["json"], key="restore_uploader")
         if uploaded and st.button("Restore now", key="restore_now_btn"):
             try:
                 data = json.load(uploaded)
@@ -687,8 +687,6 @@ if st.session_state.page == "home":
                 st.rerun()
             except Exception as e:
                 st.error(f"Restore failed: {e}")
-
-
 
 
 #####
