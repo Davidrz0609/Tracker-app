@@ -497,13 +497,10 @@ if not st.session_state.authenticated:
 # ─────────────────────────────────────────────────────────────────────
 def require_snapshot_download(every_seconds: int = 5, file_basename: str = "HelpCenter_Snapshot.json"):
     """
-    Shows a blocking overlay (modal) that requires the user to download
-    the current snapshot JSON. The overlay cannot be dismissed until they:
-      1) Click the download button, then
-      2) Click 'Continue'.
-    It reappears every `every_seconds` after the last confirmation.
+    Blocks with a modal until the user 1) downloads the JSON and 2) confirms.
+    Pops back up every `every_seconds`.
     """
-    # init tracking flags
+    # state
     if "snapshot_ack_ts" not in st.session_state:
         st.session_state.snapshot_ack_ts = None
     if "snapshot_dl_clicked" not in st.session_state:
@@ -511,18 +508,14 @@ def require_snapshot_download(every_seconds: int = 5, file_basename: str = "Help
 
     now  = datetime.now().timestamp()
     last = st.session_state.snapshot_ack_ts
-    due  = (last is None) or ((now - last) >= every_seconds)
+    if last is not None and (now - last) < every_seconds:
+        return
 
-    if not due:
-        return  # not time yet
-
-    # live snapshot from session
+    # live snapshot
     snap = {
         "requests": st.session_state.get("requests", []),
         "comments": st.session_state.get("comments", {})
     }
-
-    # best-effort: also write regular disk snapshot
     try:
         export_snapshot_to_disk()
     except Exception as e:
@@ -540,29 +533,33 @@ def require_snapshot_download(every_seconds: int = 5, file_basename: str = "Help
         st.markdown("### 🔐 Please download the current snapshot")
         st.write("To keep your data safe, download the live JSON. This prompt will reappear every **2 minutes**.")
 
-        dl = st.download_button(
-            "⬇️ Download live snapshot (JSON)",
-            data=json.dumps(snap, ensure_ascii=False, indent=2),
-            file_name=file_basename,
-            mime="application/json",
-            key="force_snapshot_dl_btn"
-        )
-        if dl:
-            st.session_state.snapshot_dl_clicked = True
-
-        left, right = st.columns([1,1])
+        # ⬇️ BOTH BUTTONS ON THE SAME LINE
+        left, right = st.columns([1, 1])
         with left:
-            if last is None:
-                st.caption("First-time save required.")
-            else:
-                st.caption("After confirming, the next reminder is in 2 minutes.")
+            dl = st.download_button(
+                "⬇️ Download live snapshot (JSON)",
+                data=json.dumps(snap, ensure_ascii=False, indent=2),
+                file_name=file_basename,
+                mime="application/json",
+                key="force_snapshot_dl_btn",
+                use_container_width=True
+            )
+            if dl:
+                st.session_state.snapshot_dl_clicked = True
+
         with right:
-            if st.button("✅ I downloaded it — continue", disabled=not st.session_state.snapshot_dl_clicked):
-                st.session_state.snapshot_ack_ts = datetime.now().timestamp()
+            cont = st.button(
+                "✅ I downloaded it — continue",
+                disabled=not st.session_state.snapshot_dl_clicked,
+                use_container_width=True,
+                key="force_snapshot_continue_btn"
+            )
+            if cont:
+                st.session_state.snapshot_ack_ts = now
                 st.session_state.snapshot_dl_clicked = False
                 st.rerun()
 
-        # keep dialog responsive
+        st.caption("After confirming, the next reminder is in 2 minutes.")
         _ = st_autorefresh(interval=1000, limit=None, key="snapshot_guard_tick")
 
     _guard()
