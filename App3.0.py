@@ -14,7 +14,7 @@ import plotly.express as px
 from datetime import datetime
 
 # Fire a rerun every 2 minutes even on static pages
-_ = st_autorefresh(interval=120_000, limit=None, key="__save_reminder_tick__")
+_ = st_autorefresh(interval=10, limit=None, key="__save_reminder_tick__")
 
 # State for throttling + optional snooze
 if "save_reminder_last_ts" not in st.session_state:
