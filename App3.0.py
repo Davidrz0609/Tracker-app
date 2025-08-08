@@ -7,87 +7,7 @@ from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
-# ─────────────────────────────────────────────────────────────────────
-# SNAPSHOT GUARD: force users to download the live JSON every N seconds
-# ─────────────────────────────────────────────────────────────────────
-def require_snapshot_download(every_seconds: int = 5, file_basename: str = "HelpCenter_Snapshot.json"):
-    """
-    Shows a blocking overlay (modal) that requires the user to download
-    the current snapshot JSON. The overlay cannot be dismissed until they:
-      1) Click the download button, then
-      2) Click 'Continue'.
-    It will reappear every `every_seconds` after the last confirmation.
-    """
-    # init tracking flags
-    if "snapshot_ack_ts" not in st.session_state:
-        st.session_state.snapshot_ack_ts = None
-    if "snapshot_dl_clicked" not in st.session_state:
-        st.session_state.snapshot_dl_clicked = False
 
-    now  = datetime.now().timestamp()
-    last = st.session_state.snapshot_ack_ts
-    due  = (last is None) or ((now - last) >= every_seconds)
-
-    if not due:
-        return  # nothing to do
-
-    # build live JSON (exactly what we have in memory)
-    snap = {
-        "requests": st.session_state.get("requests", []),
-        "comments": st.session_state.get("comments", {})
-    }
-
-    # also try writing normal disk snapshot (optional, best-effort)
-    try:
-        export_snapshot_to_disk()
-    except Exception as e:
-        st.warning(f"Auto-export failed: {e}")
-
-    @st.dialog("⚠️ Download required", width="large")
-    def _guard():
-        # Try to make the dialog "hard to close" and big
-        st.markdown("""
-        <style>
-          /* Make dialog as wide/tall as possible */
-          [data-testid="stDialog"] { max-width: 98vw !important; }
-          /* Hide typical close button if present (may vary by Streamlit version) */
-          [data-testid="stDialog"] button[aria-label="Close"] { display:none !important; }
-        </style>
-        """, unsafe_allow_html=True)
-
-        st.markdown("### 🔐 Safety first — please download the live snapshot")
-        st.write("To keep your data safe, download the current JSON snapshot. This prompt will reappear every **2 minutes**.")
-
-        # The download button returns True on the click that triggers a download
-        dl = st.download_button(
-            "⬇️ Download live snapshot (JSON)",
-            data=json.dumps(snap, ensure_ascii=False, indent=2),
-            file_name=file_basename,
-            mime="application/json",
-            key="force_snapshot_dl_btn"
-        )
-        if dl:
-            st.session_state.snapshot_dl_clicked = True
-
-        # Continue is blocked until they actually clicked the download button
-        c1, c2 = st.columns([2,1])
-        with c1:
-            if last is None:
-                st.caption("First-time save required.")
-            else:
-                st.caption("After you confirm, the next reminder appears in 2 minutes.")
-        with c2:
-            if st.button("✅ I downloaded it — continue", disabled=not st.session_state.snapshot_dl_clicked):
-                st.session_state.snapshot_ack_ts = datetime.now().timestamp()
-                st.session_state.snapshot_dl_clicked = False
-                st.rerun()
-
-        # Keep the overlay 'alive' and responsive
-        _ = st_autorefresh(interval=1000, limit=None, key="snapshot_guard_tick")
-
-    # Show the modal and block the rest of the page
-    _guard()
-    st.stop()
 
 
 # ----- PORTABLE EXPORT CONFIG (no secrets) -----
@@ -572,28 +492,102 @@ if not st.session_state.authenticated:
 
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────
+# SNAPSHOT GUARD: force users to download the live JSON every N seconds
+# ─────────────────────────────────────────────────────────────────────
+def require_snapshot_download(every_seconds: int = 120, file_basename: str = "HelpCenter_Snapshot.json"):
+    """
+    Shows a blocking overlay (modal) that requires the user to download
+    the current snapshot JSON. The overlay cannot be dismissed until they:
+      1) Click the download button, then
+      2) Click 'Continue'.
+    It reappears every `every_seconds` after the last confirmation.
+    """
+    # init tracking flags
+    if "snapshot_ack_ts" not in st.session_state:
+        st.session_state.snapshot_ack_ts = None
+    if "snapshot_dl_clicked" not in st.session_state:
+        st.session_state.snapshot_dl_clicked = False
+
+    now  = datetime.now().timestamp()
+    last = st.session_state.snapshot_ack_ts
+    due  = (last is None) or ((now - last) >= every_seconds)
+
+    if not due:
+        return  # not time yet
+
+    # live snapshot from session
+    snap = {
+        "requests": st.session_state.get("requests", []),
+        "comments": st.session_state.get("comments", {})
+    }
+
+    # best-effort: also write regular disk snapshot
+    try:
+        export_snapshot_to_disk()
+    except Exception as e:
+        st.warning(f"Auto-export failed: {e}")
+
+    @st.dialog("⚠️ Download required", width="large")
+    def _guard():
+        st.markdown("""
+        <style>
+          [data-testid="stDialog"] { max-width: 98vw !important; }
+          [data-testid="stDialog"] button[aria-label="Close"] { display:none !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown("### 🔐 Please download the current snapshot")
+        st.write("To keep your data safe, download the live JSON. This prompt will reappear every **2 minutes**.")
+
+        dl = st.download_button(
+            "⬇️ Download live snapshot (JSON)",
+            data=json.dumps(snap, ensure_ascii=False, indent=2),
+            file_name=file_basename,
+            mime="application/json",
+            key="force_snapshot_dl_btn"
+        )
+        if dl:
+            st.session_state.snapshot_dl_clicked = True
+
+        c1, c2 = st.columns([2,1])
+        with c1:
+            if last is None:
+                st.caption("First-time save required.")
+            else:
+                st.caption("After confirming, the next reminder is in 2 minutes.")
+        with c2:
+            if st.button("✅ I downloaded it — continue", disabled=not st.session_state.snapshot_dl_clicked):
+                st.session_state.snapshot_ack_ts = datetime.now().timestamp()
+                st.session_state.snapshot_dl_clicked = False
+                st.rerun()
+
+        # keep dialog responsive
+        _ = st_autorefresh(interval=1000, limit=None, key="snapshot_guard_tick")
+
+    _guard()
+    st.stop()
+
+
+
+# ─────────────────────────────────────────────────────────────────────
 # ---------------- HOME PAGE (with locked Summary & Requerimientos) ----
-# ──────────────────────────────────────────────────────────────────────
-
-# ── Who’s allowed to view the Summary page?
+# ─────────────────────────────────────────────────────────────────────
 SUMMARY_ALLOWED = {"Andres", "David", "Tito", "Luz"}
-
-# ── Who’s NOT allowed to view Requerimientos Clientes?
-REQS_DENIED = {"Bodega"}
+REQS_DENIED     = {"Bodega"}
 
 if st.session_state.page == "home":
+    # Small heartbeat so the guard pops exactly on time even if idle here
+    _ = st_autorefresh(interval=10_000, limit=None, key="home_heartbeat")
+
+    # 🔒 Enforce the 2-minute download guard on the Home page
+    require_snapshot_download(every_seconds=120)
+
     # Global styling
     st.markdown("""
     <style>
-    html, body, [class*="css"] {
-        font-family: 'Segoe UI', sans-serif;
-    }
-    h1, h2, h3, h4 {
-        color: #003366;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-    }
+    html, body, [class*="css"] { font-family: 'Segoe UI', sans-serif; }
+    h1, h2, h3, h4 { color: #003366; font-weight: 700; margin-bottom: 0.5rem; }
     div.stButton > button {
         background-color: #ffffff !important;
         border: 1px solid #ccc !important;
@@ -629,56 +623,34 @@ if st.session_state.page == "home":
     # — Requerimientos Clientes (locked for Bodega) —
     with col1:
         if st.session_state.user_name not in REQS_DENIED:
-            if st.button(
-                "📝 View Requerimientos Clientes",
-                use_container_width=True,
-                key="home_view_reqs"
-            ):
+            if st.button("📝 View Requerimientos Clientes", use_container_width=True, key="home_view_reqs"):
                 st.session_state.page = "req_list"
                 st.rerun()
         else:
-            st.button(
-                "🔒 View Requerimientos Clientes",
-                disabled=True,
-                use_container_width=True,
-                key="home_view_reqs_locked"
-            )
+            st.button("🔒 View Requerimientos Clientes", disabled=True, use_container_width=True, key="home_view_reqs_locked")
             st.caption("You don’t have access to this page.")
 
     # — All Orders (open to everyone) —
     with col2:
-        if st.button(
-            "📋 View All Purchase/Sales Orders",
-            use_container_width=True,
-            key="home_view_orders"
-        ):
+        if st.button("📋 View All Purchase/Sales Orders", use_container_width=True, key="home_view_orders"):
             st.session_state.page = "requests"
             st.rerun()
 
     # — Summary (locked except for SUMMARY_ALLOWED) —
     with col3:
         if st.session_state.user_name in SUMMARY_ALLOWED:
-            if st.button(
-                "📊 Summary",
-                use_container_width=True,
-                key="home_summary"
-            ):
+            if st.button("📊 Summary", use_container_width=True, key="home_summary"):
                 st.session_state.page = "summary"
                 st.rerun()
         else:
-            st.button(
-                "🔒 Summary",
-                disabled=True,
-                use_container_width=True,
-                key="home_summary_locked"
-            )
+            st.button("🔒 Summary", disabled=True, use_container_width=True, key="home_summary_locked")
             st.caption("You don’t have access to this page.")
 
     # --- Backup & Restore (manual) ---
     with st.expander("Backup & Restore"):
         st.caption(f"Export folder: {EXPORT_DIR}")
 
-        # Download current snapshot (from in-memory state)
+        # Download current snapshot (in-memory)
         snap = {
             "requests": st.session_state.get("requests", []),
             "comments": st.session_state.get("comments", {})
@@ -707,6 +679,7 @@ if st.session_state.page == "home":
                 st.rerun()
             except Exception as e:
                 st.error(f"Restore failed: {e}")
+
 
 
 
