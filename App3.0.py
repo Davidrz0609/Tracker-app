@@ -8,24 +8,35 @@ from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
 
-# ----- AUTO EXPORT CONFIG (write to repo root) -----
+# ----- AUTO EXPORT CONFIG (writes to ~/Downloads/Automation_Project_Titos) -----
+# ----- AUTO EXPORT CONFIG (Mac path + container-safe fallback) -----
+import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent       # folder that contains App3.0.py
-EXPORT_DIR = PROJECT_ROOT                            # <— root
+# Your Mac path (what you want)
+HOST_EXPORT_DIR = Path("/Users/davidrestrepo/Downloads/Automation_Project_Titos")
 
-# Files in the root
+# If running in a dev container, write inside the repo so Finder can see it
+PROJECT_ROOT = Path.cwd()                      # streamlit run from repo root
+CONTAINER_FALLBACK = PROJECT_ROOT / "exports"  # shows up next to your code
+
+# Choose export dir:
+if "HELP_CENTER_EXPORT_DIR" in os.environ:
+    EXPORT_DIR = Path(os.environ["HELP_CENTER_EXPORT_DIR"]).expanduser()
+else:
+    home = Path.home()
+    if str(home).startswith("/home/vscode") or str(home).startswith("/home/codespace"):
+        EXPORT_DIR = CONTAINER_FALLBACK
+    else:
+        EXPORT_DIR = HOST_EXPORT_DIR
+
+EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
 EXPORT_ORDERS_CSV       = str(EXPORT_DIR / "orders.csv")
 EXPORT_REQUIREMENTS_CSV = str(EXPORT_DIR / "requirements.csv")
 EXPORT_COMMENTS_CSV     = str(EXPORT_DIR / "comments.csv")
 EXPORT_XLSX             = str(EXPORT_DIR / "HelpCenter_Snapshot.xlsx")
 
-# Persistent snapshot + uploads (also in root)
-DATA_SNAPSHOT_JSON = str(EXPORT_DIR / "data_snapshot.json")
-PERSIST_UPLOADS_DIR = EXPORT_DIR / "uploads"
-PERSIST_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-
-st.caption(f"Auto-export folder: {EXPORT_DIR.resolve()}")
 
 
 
@@ -541,15 +552,8 @@ elif st.session_state.page == "summary":
 # ──────────────────────────────────────────────────────────────────────
 # ---------------- ALL PURCHASE/SALES ORDERS PAGE ----------------------
 # ──────────────────────────────────────────────────────────────────────
-# Requires helpers: add_request(), load_data(), save_data(), delete_request(),
-# go_to(page), format_status_badge(status), export_snapshot_to_disk()
-# Globals used: EXPORT_DIR, UPLOADS_DIR, PERSIST_UPLOADS_DIR
-
-from pathlib import Path
-import os, json
-import pandas as pd
-from datetime import datetime, date
-from streamlit_autorefresh import st_autorefresh
+# Assumes helpers exist: add_request(), load_data(), save_data(), delete_request(),
+# go_to(page), format_status_badge(status)
 
 if st.session_state.page == "requests":
     user = st.session_state.user_name
@@ -557,8 +561,8 @@ if st.session_state.page == "requests":
     # ─── ACCESS GROUPS ─────────────────────────────────────────────
     SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina"}
     PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David"}          # can open PO dialog
-    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David"}          # can see price columns
-    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David"}# can see POs & SOs
+    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David"}           # can see price columns
+    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David"} # can see POs & SOs
 
     # ─── STATE FOR OVERLAYS ───────────────────────────────────────
     if "show_new_po" not in st.session_state:
@@ -710,7 +714,7 @@ if st.session_state.page == "requests":
             if st.button("➕ Add another item", key="add_invoice"):
                 st.session_state.invoice_item_rows += 1
         with sb2:
-            if st.button("❌ Remove last item", key="remove_invoice") and st.session_state.invoice_item_rows > 1:
+            if st.session_state.invoice_item_rows > 1 and st.button("❌ Remove last item", key="remove_invoice"):
                 st.session_state.invoice_item_rows -= 1
 
         st.markdown("### 🚚 Shipping Information")
@@ -781,10 +785,10 @@ if st.session_state.page == "requests":
         export_snapshot_to_disk()
     except Exception as e:
         st.warning(f"Auto-export failed: {e}")
-    st.caption(f"Auto-export folder: {Path(EXPORT_DIR).resolve()}")
-    if os.path.exists(EXPORT_XLSX):
-        with open(EXPORT_XLSX, "rb") as f:
-            st.download_button("⬇️ Download latest snapshot (Excel)", f, "HelpCenter_Snapshot.xlsx")
+    #st.caption(f"Auto-export folder: {Path(EXPORT_DIR).resolve()}")
+    #if os.path.exists(EXPORT_XLSX):
+       # with open(EXPORT_XLSX, "rb") as f:
+            #st.download_button("⬇️ Download latest snapshot (Excel)", f, "HelpCenter_Snapshot.xlsx")
 
     # ─── SHOW OVERLAYS IF TRIGGERED ───────────────────────────────
     if st.session_state.show_new_po:
@@ -808,7 +812,10 @@ if st.session_state.page == "requests":
 
     # ─── ACCESS SCOPE ─────────────────────────────────────────────
     all_requests = st.session_state.requests
-    base_requests = all_requests if user in BODEGA else [r for r in all_requests if r.get("Type") == "🛒"]
+    if user in BODEGA:
+        base_requests = all_requests
+    else:
+        base_requests = [r for r in all_requests if r.get("Type") == "🛒"]
 
     # ─── APPLY FILTERS ────────────────────────────────────────────
     def _matches_status(r):
@@ -987,7 +994,7 @@ if st.session_state.page == "requests":
                         for c in comments_list:
                             if c.get("author") != user and user not in c["read_by"]:
                                 c["read_by"].append(user)
-                        save_data()
+                        save_data()  # persists JSON (and if your global save_data also exports, even better)
                         st.session_state.selected_request = idx
                         go_to("detail")
                     if a2.button("❌", key=f"delete_{idx}"):
@@ -1014,27 +1021,33 @@ if st.session_state.page == "requests":
     # ─── BACK TO HOME ─────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
-
 ####
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+import pandas as pd
+import os
+from datetime import datetime, date
+
+# Assume these helper functions are defined elsewhere in your app:
+# add_comment(index, author, text, attachment)
+# save_data()
+# delete_request(index)
+# go_to(page_name)
+
+UPLOADS_DIR = "uploads"  # path to your uploads directory
+
 # -------------------------------------------
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
-from pathlib import Path
-import os
-import pandas as pd
-from datetime import datetime, date
-from streamlit_autorefresh import st_autorefresh
-
-UPLOADS_DIR = "uploads"  # should already exist; repo-root in your setup
-
 if st.session_state.page == "detail":
-    # Auto-refresh comments every second
+    # Auto‑refresh comments every second
     _ = st_autorefresh(
         interval=1000,
         limit=None,
         key=f"detail_comments_refresh_{st.session_state.selected_request}"
     )
 
+    # Validate selection
     index = st.session_state.selected_request
     if index is None or index >= len(st.session_state.requests):
         st.error("Invalid request selected.")
@@ -1043,17 +1056,21 @@ if st.session_state.page == "detail":
     request = st.session_state.requests[index]
     updated_fields = {}
     is_purchase = (request.get("Type") == "💲")
+
+    # Should Bodega see prices?
     hide_prices = (st.session_state.user_name == "Bodega")
 
     # ─────────── SIDEBAR ───────────
     with st.sidebar:
         st.markdown("### 📄 Order Information")
 
+        # Ref# / Order#
         order_number_val = request.get("Order#", "")
         order_number = st.text_input("Ref#", order_number_val, key="detail_Order#")
         if order_number != order_number_val:
             updated_fields["Order#"] = order_number
 
+        # Status
         status_opts = [
             " ", "Imprimir", "Impresa", "Separar y Confirmar",
             "Recibido / Procesando", "Pendiente", "Separado - Pendiente",
@@ -1062,31 +1079,39 @@ if st.session_state.page == "detail":
         curr_status = request.get("Status", " ")
         if curr_status not in status_opts:
             curr_status = " "
-        status = st.selectbox("Status", status_opts,
-                              index=status_opts.index(curr_status),
-                              key="detail_Status")
+        status = st.selectbox(
+            "Status", status_opts,
+            index=status_opts.index(curr_status),
+            key="detail_Status"
+        )
         if status != curr_status:
             updated_fields["Status"] = status
 
+        # Tracking# / Invoice
         invoice_val = request.get("Invoice", "")
         invoice = st.text_input("Tracking#", invoice_val, key="detail_Invoice")
         if invoice != invoice_val:
             updated_fields["Invoice"] = invoice
 
+        # Proveedor vs Cliente
         partner_label = "Proveedor" if is_purchase else "Cliente"
         partner_val = request.get(partner_label, "")
         partner = st.text_input(partner_label, partner_val, key=f"detail_{partner_label}")
         if partner != partner_val:
             updated_fields[partner_label] = partner
 
+        # Método de Pago
         pago_val = request.get("Pago", " ")
-        pago = st.selectbox("Método de Pago",
-                            [" ", "Wire", "Cheque", "Credito", "Efectivo"],
-                            index=[" ", "Wire", "Cheque", "Credito", "Efectivo"].index(pago_val),
-                            key="detail_Pago")
+        pago = st.selectbox(
+            "Método de Pago",
+            [" ", "Wire", "Cheque", "Credito", "Efectivo"],
+            index=[" ", "Wire", "Cheque", "Credito", "Efectivo"].index(pago_val),
+            key="detail_Pago"
+        )
         if pago != pago_val:
             updated_fields["Pago"] = pago
 
+        # Encargado
         encargado_val = request.get("Encargado", " ")
         encargado = st.selectbox(
             "Encargado",
@@ -1096,11 +1121,12 @@ if st.session_state.page == "detail":
         )
         if encargado != encargado_val:
             updated_fields["Encargado"] = encargado
-
-        # ─── Items (Description / Qty / Price) ─────────────────
+        
+        # ─── 🧾 Items (Description / Qty / Price) ─────────────────
         st.markdown("### 🧾 Items")
         descs = request.get("Description", [])
         qtys  = request.get("Quantity", [])
+        # cost vs sale price field name
         price_key = "Cost" if is_purchase else "Sale Price"
         prices = request.get(price_key, [])
 
@@ -1109,7 +1135,8 @@ if st.session_state.page == "detail":
             c1, c2, c3 = st.columns([3, 1, 1])
             new_d = c1.text_input(f"Description #{i+1}", d, key=f"detail_desc_{i}")
             new_q = c2.text_input(f"Qty #{i+1}", q, key=f"detail_qty_{i}")
-
+            
+            # hide price input for Bodega
             if hide_prices:
                 c3.markdown("**—**")
                 new_p = p
@@ -1120,52 +1147,66 @@ if st.session_state.page == "detail":
             new_qtys.append(new_q)
             new_prices.append(new_p)
 
+        # detect changes to the items arrays
         if new_descs != descs:
             updated_fields["Description"] = new_descs
         if new_qtys != qtys:
+            # convert back to ints where possible
             try:
                 updated_fields["Quantity"] = [int(x) for x in new_qtys]
             except:
                 updated_fields["Quantity"] = new_qtys
         if new_prices != prices:
+            # convert back to floats where possible
             try:
                 updated_fields[price_key] = [float(x) for x in new_prices]
             except:
                 updated_fields[price_key] = new_prices
 
         st.markdown("### 🚚 Shipping Information")
+
+        # Order Date
         date_val = request.get("Date", str(date.today()))
-        order_date = st.date_input("Order Date", value=pd.to_datetime(date_val), key="detail_Date")
+        order_date = st.date_input(
+            "Order Date",
+            value=pd.to_datetime(date_val),
+            key="detail_Date"
+        )
         if str(order_date) != date_val:
             updated_fields["Date"] = str(order_date)
 
+        # ETA Date
         eta_val = request.get("ETA Date", str(date.today()))
-        eta_date = st.date_input("ETA Date", value=pd.to_datetime(eta_val), key="detail_ETA")
+        eta_date = st.date_input(
+            "ETA Date",
+            value=pd.to_datetime(eta_val),
+            key="detail_ETA"
+        )
         if str(eta_date) != eta_val:
             updated_fields["ETA Date"] = str(eta_date)
 
+        # Shipping Method
         ship_val = request.get("Shipping Method", " ")
-        shipping_method = st.selectbox("Shipping Method",
-                                       [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"],
-                                       index=[" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"].index(ship_val),
-                                       key="detail_Shipping")
+        shipping_method = st.selectbox(
+            "Shipping Method",
+            [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"],
+            index=[" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"].index(ship_val),
+            key="detail_Shipping"
+        )
         if shipping_method != ship_val:
             updated_fields["Shipping Method"] = shipping_method
 
         st.markdown("---")
+        # Save / Delete / Back
         if updated_fields and st.button("💾 Save Changes", use_container_width=True):
             request.update(updated_fields)
             st.session_state.requests[index] = request
-            save_data()  # writes snapshot + exports
+            save_data()
             st.success("✅ Changes saved.")
             st.rerun()
 
         if st.button("🗑️ Delete Request", use_container_width=True):
             delete_request(index)
-            try:
-                export_snapshot_to_disk()
-            except Exception as e:
-                st.warning(f"Auto-export failed: {e}")
 
         if st.button("⬅ Back to All Requests", use_container_width=True):
             go_to("requests")
@@ -1174,6 +1215,7 @@ if st.session_state.page == "detail":
     st.markdown("## 💬 Comments")
     col_l, col_center, col_r = st.columns([1, 6, 1])
     with col_center:
+        # inject CSS for chat bubbles layout
         st.markdown("""
             <style>
                 .chat-author-in    { font-size:12px; color:#555; margin:4px 0 0 5px; clear:both; }
@@ -1187,6 +1229,7 @@ if st.session_state.page == "detail":
         """, unsafe_allow_html=True)
 
         existing_comments = st.session_state.comments.get(str(index), [])
+        # build author→color mapping
         authors = []
         for c in existing_comments:
             if c["author"] not in authors:
@@ -1202,10 +1245,13 @@ if st.session_state.page == "detail":
             align = "right" if author == st.session_state.user_name else "left"
             cls = "out" if author == st.session_state.user_name else "in"
 
+            # author label
             st.markdown(
                 f'<div class="chat-author-{cls}" style="text-align:{align};">{author}</div>',
                 unsafe_allow_html=True
             )
+
+            # attachment
             if attachment:
                 file_path = os.path.join(UPLOADS_DIR, attachment)
                 st.markdown(
@@ -1216,6 +1262,8 @@ if st.session_state.page == "detail":
                     f'<div class="clearfix"></div>',
                     unsafe_allow_html=True
                 )
+
+            # text bubble
             if text:
                 bg = color_map.get(author, "#EDEDED")
                 text_color = "#FFF" if cls == "out" else "#000"
@@ -1232,10 +1280,11 @@ if st.session_state.page == "detail":
         def send_on_enter():
             msg = st.session_state[text_key].strip()
             if msg:
-                add_comment(index, st.session_state.user_name, msg)  # save_data() inside add_comment should run
+                add_comment(index, st.session_state.user_name, msg)
                 st.session_state[text_key] = ""
                 st.rerun()
 
+        # text input that submits on Enter
         text_key = f"new_msg_{index}"
         st.text_input(
             "Type your message here…",
@@ -1244,6 +1293,7 @@ if st.session_state.page == "detail":
             placeholder="Press enter to send"
         )
 
+        # File uploader button
         uploaded_file = st.file_uploader(
             "Attach PDF, PNG or XLSX:",
             type=["pdf", "png", "xlsx"],
@@ -1254,21 +1304,11 @@ if st.session_state.page == "detail":
             if st.button("Upload File", key=f"upload_file_{index}") and uploaded_file:
                 ts = datetime.now().strftime("%Y%m%d%H%M%S")
                 fn = f"{index}_{ts}_{uploaded_file.name}"
-                path_local = os.path.join(UPLOADS_DIR, fn)
-                with open(path_local, "wb") as f:
+                with open(os.path.join(UPLOADS_DIR, fn), "wb") as f:
                     f.write(uploaded_file.getbuffer())
-
-                # mirror if different (in your setup they are the same path)
-                if Path(PERSIST_UPLOADS_DIR).resolve() != Path(UPLOADS_DIR).resolve():
-                    try:
-                        shutil.copy2(path_local, PERSIST_UPLOADS_DIR / fn)
-                    except Exception as e:
-                        st.warning(f"Couldn’t mirror upload: {e}")
-
                 add_comment(index, st.session_state.user_name, "", attachment=fn)
                 st.success(f"Uploaded: {uploaded_file.name}")
                 st.rerun()
-
 ####
 
 elif st.session_state.page == "req_list":
