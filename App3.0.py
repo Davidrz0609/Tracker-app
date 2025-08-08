@@ -494,7 +494,7 @@ if not st.session_state.authenticated:
 # ─────────────────────────────────────────────────────────────────────
 # SNAPSHOT GUARD: force users to download the live JSON every N seconds
 # ─────────────────────────────────────────────────────────────────────
-def require_snapshot_download(every_seconds: int = 5, file_basename: str = "HelpCenter_Snapshot.json"):
+def require_snapshot_download(every_seconds: int = 12600, file_basename: str = "HelpCenter_Snapshot.json"):
     """
     Blocks with a modal until the user 1) downloads the JSON and 2) confirms.
     Pops back up every `every_seconds`.
@@ -529,8 +529,8 @@ def require_snapshot_download(every_seconds: int = 5, file_basename: str = "Help
         </style>
         """, unsafe_allow_html=True)
 
-        st.markdown("### 🔐 Please download the current snapshot")
-        st.write("To keep your data safe, download the live JSON. This prompt will reappear every **2 minutes**.")
+        #st.markdown("### 🔐 Please download the current snapshot")
+        st.write("To keep your data safe, download the live JSON. This prompt will reappear every **3 hours 30 minutes**.")
 
         # ⬇️ BOTH BUTTONS ON THE SAME LINE
         left, right = st.columns([1, 1])
@@ -558,7 +558,7 @@ def require_snapshot_download(every_seconds: int = 5, file_basename: str = "Help
                 st.session_state.snapshot_dl_clicked = False
                 st.rerun()
 
-        st.caption("After confirming, the next reminder is in 2 minutes.")
+        #st.caption("After confirming, the next reminder is in 2 minutes.")
         _ = st_autorefresh(interval=1000, limit=None, key="snapshot_guard_tick")
 
     _guard()
@@ -571,7 +571,7 @@ if st.session_state.authenticated:
     if st.session_state.page in ("home", "summary"):
         _ = st_autorefresh(interval=10_000, limit=None, key=f"guard_heartbeat_{st.session_state.page}")
     # show the overlay everywhere (except login) every 2 minutes
-    require_snapshot_download(every_seconds=5)
+    require_snapshot_download(every_seconds=12600)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -585,7 +585,7 @@ if st.session_state.page == "home":
     _ = st_autorefresh(interval=10_000, limit=None, key="home_heartbeat")
 
     # 🔒 Enforce the 2-minute download guard on the Home page
-    require_snapshot_download(every_seconds=5)
+    require_snapshot_download(every_seconds=12600)
 
     # Global styling
     st.markdown("""
