@@ -7,6 +7,86 @@ from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
+import os, time, json, base64
+import streamlit as st
+import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
+
+st.title("Auto-download JSON after 2 minutes")
+
+# --- CONFIG ---
+DEFAULT_FILE = "requests.json"        # change to your file (e.g., "comments.json")
+DELAY_SECONDS = 10                   # 2 minutes
+
+# --- STATE ---
+if "dl_start" not in st.session_state:
+    st.session_state.dl_start = None
+if "dl_done" not in st.session_state:
+    st.session_state.dl_done = False
+
+# --- HELPERS ---
+def read_json_bytes(path: str) -> bytes:
+    """Read JSON from disk. If missing, return empty list JSON."""
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        return json.dumps([]).encode("utf-8")
+
+def trigger_browser_download(file_bytes: bytes, file_name: str):
+    """Inject an <a download> data: URL and auto-click it."""
+    b64 = base64.b64encode(file_bytes).decode("utf-8")
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            var a = document.createElement('a');
+            a.href = "data:application/json;base64,{b64}";
+            a.download = "{file_name}";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+# --- UI: Pick file (optional) ---
+file_path = st.text_input("JSON file to download after 2 minutes:", value=DEFAULT_FILE)
+
+# Manual download (fallback)
+file_now = read_json_bytes(file_path)
+st.download_button(
+    "Download now (manual fallback)",
+    data=file_now,
+    file_name=os.path.basename(file_path),
+    mime="application/json",
+)
+
+# Start timer (gives the browser a user gesture)
+if st.button("Start 2-minute auto-download"):
+    st.session_state.dl_start = time.time()
+    st.session_state.dl_done = False
+    st.rerun()
+
+# If timer started, show countdown and trigger when it hits zero
+if st.session_state.dl_start is not None and not st.session_state.dl_done:
+    elapsed = time.time() - st.session_state.dl_start
+    remaining = int(max(0, DELAY_SECONDS - elapsed))
+
+    # update once per second
+    st_autorefresh(interval=1000, key="dl_tick")
+
+    if remaining > 0:
+        st.info(f"Auto-download will start in {remaining} seconds… keep this tab open.")
+    else:
+        # Re-read right before download to capture latest file contents
+        latest_bytes = read_json_bytes(file_path)
+        trigger_browser_download(latest_bytes, os.path.basename(file_path))
+        st.success("Auto-download triggered.")
+        st.session_state.dl_done = True
+
 
 # ----- AUTO EXPORT CONFIG (portable: Codespaces + Streamlit Cloud + Mac) -----
 from pathlib import Path
