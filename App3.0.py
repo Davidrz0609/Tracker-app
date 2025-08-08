@@ -592,6 +592,40 @@ if st.session_state.page == "home":
             )
             st.caption("You don’t have access to this page.")
 
+    # --- Backup & Restore (manual) ---
+    with st.expander("Backup & Restore"):
+        st.caption(f"Export folder: {EXPORT_DIR}")
+
+        # Download current snapshot (from in-memory state)
+        snap = {
+            "requests": st.session_state.get("requests", []),
+            "comments": st.session_state.get("comments", {})
+        }
+        st.download_button(
+            "⬇️ Download snapshot (JSON)",
+            data=json.dumps(snap, ensure_ascii=False, indent=2),
+            file_name="HelpCenter_Snapshot.json",
+            mime="application/json",
+            key="backup_dl_btn"
+        )
+
+        # Upload + restore
+        uploaded = st.file_uploader(
+            "Restore from snapshot JSON",
+            type=["json"],
+            key="restore_uploader"
+        )
+        if uploaded and st.button("Restore now", key="restore_now_btn"):
+            try:
+                data = json.load(uploaded)
+                st.session_state.requests = data.get("requests", [])
+                st.session_state.comments = data.get("comments", {})
+                save_data()
+                st.success("Restored from uploaded snapshot ✅")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Restore failed: {e}")
+
 
 
 #####
