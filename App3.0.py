@@ -7,6 +7,87 @@ from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
+# ─────────────────────────────────────────────────────────────────────
+# SNAPSHOT GUARD: force users to download the live JSON every N seconds
+# ─────────────────────────────────────────────────────────────────────
+def require_snapshot_download(every_seconds: int = 120, file_basename: str = "HelpCenter_Snapshot.json"):
+    """
+    Shows a blocking overlay (modal) that requires the user to download
+    the current snapshot JSON. The overlay cannot be dismissed until they:
+      1) Click the download button, then
+      2) Click 'Continue'.
+    It will reappear every `every_seconds` after the last confirmation.
+    """
+    # init tracking flags
+    if "snapshot_ack_ts" not in st.session_state:
+        st.session_state.snapshot_ack_ts = None
+    if "snapshot_dl_clicked" not in st.session_state:
+        st.session_state.snapshot_dl_clicked = False
+
+    now  = datetime.now().timestamp()
+    last = st.session_state.snapshot_ack_ts
+    due  = (last is None) or ((now - last) >= every_seconds)
+
+    if not due:
+        return  # nothing to do
+
+    # build live JSON (exactly what we have in memory)
+    snap = {
+        "requests": st.session_state.get("requests", []),
+        "comments": st.session_state.get("comments", {})
+    }
+
+    # also try writing normal disk snapshot (optional, best-effort)
+    try:
+        export_snapshot_to_disk()
+    except Exception as e:
+        st.warning(f"Auto-export failed: {e}")
+
+    @st.dialog("⚠️ Download required", width="large")
+    def _guard():
+        # Try to make the dialog "hard to close" and big
+        st.markdown("""
+        <style>
+          /* Make dialog as wide/tall as possible */
+          [data-testid="stDialog"] { max-width: 98vw !important; }
+          /* Hide typical close button if present (may vary by Streamlit version) */
+          [data-testid="stDialog"] button[aria-label="Close"] { display:none !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown("### 🔐 Safety first — please download the live snapshot")
+        st.write("To keep your data safe, download the current JSON snapshot. This prompt will reappear every **2 minutes**.")
+
+        # The download button returns True on the click that triggers a download
+        dl = st.download_button(
+            "⬇️ Download live snapshot (JSON)",
+            data=json.dumps(snap, ensure_ascii=False, indent=2),
+            file_name=file_basename,
+            mime="application/json",
+            key="force_snapshot_dl_btn"
+        )
+        if dl:
+            st.session_state.snapshot_dl_clicked = True
+
+        # Continue is blocked until they actually clicked the download button
+        c1, c2 = st.columns([2,1])
+        with c1:
+            if last is None:
+                st.caption("First-time save required.")
+            else:
+                st.caption("After you confirm, the next reminder appears in 2 minutes.")
+        with c2:
+            if st.button("✅ I downloaded it — continue", disabled=not st.session_state.snapshot_dl_clicked):
+                st.session_state.snapshot_ack_ts = datetime.now().timestamp()
+                st.session_state.snapshot_dl_clicked = False
+                st.rerun()
+
+        # Keep the overlay 'alive' and responsive
+        _ = st_autorefresh(interval=1000, limit=None, key="snapshot_guard_tick")
+
+    # Show the modal and block the rest of the page
+    _guard()
+    st.stop()
 
 
 # ----- PORTABLE EXPORT CONFIG (no secrets) -----
