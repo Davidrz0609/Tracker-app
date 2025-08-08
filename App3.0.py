@@ -5,6 +5,39 @@ import json
 import os
 from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
+import plotly.express as px
+
+
+# ----- AUTO EXPORT CONFIG (writes to ~/Downloads/Automation_Project_Titos) -----
+# ----- AUTO EXPORT CONFIG (Mac path + container-safe fallback) -----
+import os
+from pathlib import Path
+
+# Your Mac path (what you want)
+HOST_EXPORT_DIR = Path("/Users/davidrestrepo/Downloads/Automation_Project_Titos")
+
+# If running in a dev container, write inside the repo so Finder can see it
+PROJECT_ROOT = Path.cwd()                      # streamlit run from repo root
+CONTAINER_FALLBACK = PROJECT_ROOT / "exports"  # shows up next to your code
+
+# Choose export dir:
+if "HELP_CENTER_EXPORT_DIR" in os.environ:
+    EXPORT_DIR = Path(os.environ["HELP_CENTER_EXPORT_DIR"]).expanduser()
+else:
+    home = Path.home()
+    if str(home).startswith("/home/vscode") or str(home).startswith("/home/codespace"):
+        EXPORT_DIR = CONTAINER_FALLBACK
+    else:
+        EXPORT_DIR = HOST_EXPORT_DIR
+
+EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+EXPORT_ORDERS_CSV       = str(EXPORT_DIR / "orders.csv")
+EXPORT_REQUIREMENTS_CSV = str(EXPORT_DIR / "requirements.csv")
+EXPORT_COMMENTS_CSV     = str(EXPORT_DIR / "comments.csv")
+EXPORT_XLSX             = str(EXPORT_DIR / "HelpCenter_Snapshot.xlsx")
+
+
 
 
 
@@ -88,12 +121,98 @@ def load_data():
     else:
         st.session_state.comments = {}
 
+from pathlib import Path
+
+def export_snapshot_to_disk():
+    # Build Orders (PO/SO) — one row per item
+    orders_rows = []
+    for i, r in enumerate(st.session_state.get("requests", []) or []):
+        t = r.get("Type")
+        if t not in ("💲", "🛒"):
+            continue
+        descs  = r.get("Description", []) or []
+        qtys   = r.get("Quantity", []) or []
+        prices = (r.get("Cost", []) if t == "💲" else r.get("Sale Price", [])) or []
+        n = max(len(descs), len(qtys), len(prices), 1)
+        for j in range(n):
+            orders_rows.append({
+                "RequestIndex": i,
+                "Type": t,
+                "Ref#": r.get("Invoice","") if t=="💲" else r.get("Order#",""),
+                "Item #": j+1,
+                "Description": descs[j] if j < len(descs) else "",
+                "Qty": qtys[j] if j < len(qtys) else "",
+                "Price": prices[j] if j < len(prices) else "",
+                "Status": r.get("Status",""),
+                "Ordered Date": r.get("Date",""),
+                "ETA Date": r.get("ETA Date",""),
+                "Shipping Method": r.get("Shipping Method",""),
+                "Encargado": r.get("Encargado",""),
+                "Partner": r.get("Proveedor","") if t=="💲" else r.get("Cliente",""),
+                "Pago": r.get("Pago",""),
+            })
+    orders_df = pd.DataFrame(orders_rows)
+
+    # Requirements (📑) — one row per item
+    req_rows = []
+    for i, r in enumerate(st.session_state.get("requests", []) or []):
+        if r.get("Type") != "📑":
+            continue
+        for j, it in enumerate(r.get("Items", []) or []):
+            req_rows.append({
+                "RequestIndex": i,
+                "Item #": j+1,
+                "Description": it.get("Description",""),
+                "Target Price": it.get("Target Price",""),
+                "Qty": it.get("QTY",""),
+                "Vendedor Encargado": r.get("Vendedor Encargado",""),
+                "Comprador Encargado": r.get("Comprador Encargado",""),
+                "Fecha": r.get("Fecha",""),
+                "Status": r.get("Status","OPEN"),
+            })
+    req_df = pd.DataFrame(req_rows)
+
+    # Comments
+    comments_rows = []
+    for k, comments in (st.session_state.get("comments", {}) or {}).items():
+        for c in comments or []:
+            comments_rows.append({
+                "RequestIndex": int(k),
+                "Author": c.get("author",""),
+                "When": c.get("when",""),
+                "Text": c.get("text",""),
+                "Attachment": c.get("attachment",""),
+            })
+    comments_df = pd.DataFrame(comments_rows)
+
+    # Write files (EXPORT_* must be defined)
+    orders_df.to_csv(EXPORT_ORDERS_CSV, index=False, encoding="utf-8-sig")
+    req_df.to_csv(EXPORT_REQUIREMENTS_CSV, index=False, encoding="utf-8-sig")
+    comments_df.to_csv(EXPORT_COMMENTS_CSV, index=False, encoding="utf-8-sig")
+
+    try:
+        with pd.ExcelWriter(EXPORT_XLSX) as xls:
+            orders_df.to_excel(xls, index=False, sheet_name="Orders")
+            req_df.to_excel(xls, index=False, sheet_name="Requirements")
+            comments_df.to_excel(xls, index=False, sheet_name="Comments")
+    except PermissionError:
+        alt = Path(EXPORT_DIR) / f"HelpCenter_Snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        with pd.ExcelWriter(alt) as xls:
+            orders_df.to_excel(xls, index=False, sheet_name="Orders")
+            req_df.to_excel(xls, index=False, sheet_name="Requirements")
+            comments_df.to_excel(xls, index=False, sheet_name="Comments")
+        st.warning(f"Excel is open. Saved snapshot to {alt}.")
+
 
 def save_data():
     with open(REQUESTS_FILE, "w") as f:
         json.dump(st.session_state.requests, f, indent=2)
     with open(COMMENTS_FILE, "w") as f:
         json.dump(st.session_state.comments, f, indent=2)
+    try:
+        export_snapshot_to_disk()
+    except Exception as e:
+        st.warning(f"Auto-export failed: {e}")
 
 
 def add_request(data):
@@ -430,26 +549,20 @@ elif st.session_state.page == "summary":
 
     st.button("⬅ Back to Home", on_click=lambda: go_to("home"))
 
-####
-
-import streamlit as st
-import pandas as pd
-import json
-import os
-from datetime import datetime, date
-from streamlit_autorefresh import st_autorefresh
-
-# Assume helper functions are defined elsewhere in your app:
-# add_request(data), load_data(), save_data(), delete_request(idx), go_to(page_name), format_status_badge(status)
+# ──────────────────────────────────────────────────────────────────────
+# ---------------- ALL PURCHASE/SALES ORDERS PAGE ----------------------
+# ──────────────────────────────────────────────────────────────────────
+# Assumes helpers exist: add_request(), load_data(), save_data(), delete_request(),
+# go_to(page), format_status_badge(status)
 
 if st.session_state.page == "requests":
     user = st.session_state.user_name
 
-    # ─── DEFINE GROUPS ─────────────────────────────────────────────
+    # ─── ACCESS GROUPS ─────────────────────────────────────────────
     SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina"}
-    TABLE_ONLY        = {"John", "Sabrina", "Carolina"}
-    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David"}
-    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David"}
+    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David"}          # can open PO dialog
+    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David"}           # can see price columns
+    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David"} # can see POs & SOs
 
     # ─── STATE FOR OVERLAYS ───────────────────────────────────────
     if "show_new_po" not in st.session_state:
@@ -457,7 +570,7 @@ if st.session_state.page == "requests":
     if "show_new_so" not in st.session_state:
         st.session_state.show_new_so = False
 
-    # ─── PURCHASE ORDER OVERLAY ─────────────────────────────────
+    # ─── PURCHASE ORDER OVERLAY ───────────────────────────────────
     @st.dialog("💲 New Purchase Order", width="large")
     def purchase_order_dialog():
         if "purchase_item_rows" not in st.session_state:
@@ -476,7 +589,6 @@ if st.session_state.page == "requests":
         </style>
         """, unsafe_allow_html=True)
 
-        # Header fields
         c1, c2 = st.columns(2)
         with c1:
             po_number    = st.text_input("Purchase Order#", placeholder="e.g. 12345")
@@ -484,10 +596,9 @@ if st.session_state.page == "requests":
             encargado_po = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"])
         with c2:
             order_number = st.text_input("Tracking# (optional)", placeholder="e.g. TRK-45678")
-            proveedor     = st.text_input("Proveedor", placeholder="e.g. Amazon")
-            pago          = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"])
+            proveedor    = st.text_input("Proveedor", placeholder="e.g. Amazon")
+            pago         = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"])
 
-        # Items + Cost per row
         st.markdown("### 🧾 Items to Order")
         descs, qtys, costs = [], [], []
         for i in range(st.session_state.purchase_item_rows):
@@ -496,7 +607,6 @@ if st.session_state.page == "requests":
             qtys.append(c_qty.text_input(f"Quantity #{i+1}", key=f"po_qty_{i}"))
             costs.append(c_cost.text_input(f"Cost #{i+1}", placeholder="e.g. 1500", key=f"po_cost_{i}"))
 
-        # Add/Remove rows
         ca2, cb2 = st.columns([1,1])
         with ca2:
             if st.button("➕ Add another item", key="add_purchase"):
@@ -505,7 +615,6 @@ if st.session_state.page == "requests":
             if st.session_state.purchase_item_rows > 1 and st.button("❌ Remove last item", key="remove_purchase"):
                 st.session_state.purchase_item_rows -= 1
 
-        # Shipping
         st.markdown("### 🚚 Shipping Information")
         c3, c4 = st.columns(2)
         with c3:
@@ -514,29 +623,22 @@ if st.session_state.page == "requests":
             eta_date   = st.date_input("ETA Date")
         shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"])
 
-        # Submit/Cancel
         col_submit, col_cancel = st.columns([2,1])
         with col_submit:
             if st.button("✅ Submit Purchase Request", use_container_width=True):
-                # Clean inputs
                 clean_descs = [d.strip() for d in descs if d.strip()]
                 clean_qtys, clean_costs = [], []
                 for q in qtys:
                     q = q.strip()
                     if q:
-                        try:
-                            clean_qtys.append(int(float(q)))
-                        except:
-                            clean_qtys.append(q)
+                        try: clean_qtys.append(int(float(q)))
+                        except: clean_qtys.append(q)
                 for c in costs:
                     c = c.strip()
                     if c:
-                        try:
-                            clean_costs.append(float(c))
-                        except:
-                            clean_costs.append(c)
+                        try: clean_costs.append(float(c))
+                        except: clean_costs.append(c)
 
-                # Validate
                 if not clean_descs or not clean_qtys or not clean_costs or status_po == " " or encargado_po == " ":
                     st.error("❗ Complete required fields.")
                 else:
@@ -555,6 +657,12 @@ if st.session_state.page == "requests":
                         "Encargado": encargado_po,
                         "Pago": pago
                     })
+                    # export immediately after adding
+                    try:
+                        export_snapshot_to_disk()
+                    except Exception as e:
+                        st.warning(f"Auto-export failed: {e}")
+
                     st.success("✅ Purchase request submitted.")
                     st.session_state.purchase_item_rows = 1
                     st.session_state.show_new_po       = False
@@ -564,15 +672,14 @@ if st.session_state.page == "requests":
                 st.session_state.show_new_po = False
                 st.rerun()
 
-    # ─── SALES ORDER OVERLAY ───────────────────────────────────
+    # ─── SALES ORDER OVERLAY ───────────────────────────────────────
     @st.dialog("🛒 New Sales Order", width="large")
     def sales_order_dialog():
         if "invoice_item_rows" not in st.session_state:
             st.session_state.invoice_item_rows = 1
         st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
 
-        st.markdown(
-            """
+        st.markdown("""
         <style>
         .stTextInput > div > div > input,
         .stSelectbox > div, .stDateInput > div {
@@ -626,17 +733,13 @@ if st.session_state.page == "requests":
                 for q in qs:
                     q = q.strip()
                     if q:
-                        try:
-                            clean_qs.append(int(float(q)))
-                        except:
-                            clean_qs.append(q)
+                        try: clean_qs.append(int(float(q)))
+                        except: clean_qs.append(q)
                 for p in prices:
                     p = p.strip()
                     if p:
-                        try:
-                            clean_prices.append(float(p))
-                        except:
-                            clean_prices.append(p)
+                        try: clean_prices.append(float(p))
+                        except: clean_prices.append(p)
 
                 if not clean_ds or not clean_qs or not clean_prices or status_so == " " or encargado_so == " ":
                     st.error("❗ Complete required fields.")
@@ -656,6 +759,12 @@ if st.session_state.page == "requests":
                         "Encargado": encargado_so,
                         "Pago": pago_so
                     })
+                    # export immediately after adding
+                    try:
+                        export_snapshot_to_disk()
+                    except Exception as e:
+                        st.warning(f"Auto-export failed: {e}")
+
                     st.success("✅ Sales order submitted.")
                     st.session_state.invoice_item_rows = 1
                     st.session_state.show_new_so    = False
@@ -665,65 +774,137 @@ if st.session_state.page == "requests":
                 st.session_state.show_new_so = False
                 st.rerun()
 
-    # ─── HEADER + AUTO-REFRESH ─────────────────────────────────
+    # ─── HEADER + AUTO-REFRESH + LOAD ─────────────────────────────
     st.markdown("# 📋 All Purchase/Sales Orders")
     st.markdown("---")
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
     load_data()
 
-    # ─── FIRE OVERLAYS IF REQUESTED ─────────────────────────
+    # Create/refresh snapshot on page open; show path + quick download
+    try:
+        export_snapshot_to_disk()
+    except Exception as e:
+        st.warning(f"Auto-export failed: {e}")
+    #st.caption(f"Auto-export folder: {Path(EXPORT_DIR).resolve()}")
+    #if os.path.exists(EXPORT_XLSX):
+       # with open(EXPORT_XLSX, "rb") as f:
+            #st.download_button("⬇️ Download latest snapshot (Excel)", f, "HelpCenter_Snapshot.xlsx")
+
+    # ─── SHOW OVERLAYS IF TRIGGERED ───────────────────────────────
     if st.session_state.show_new_po:
         purchase_order_dialog()
     if st.session_state.show_new_so:
         sales_order_dialog()
 
-    # ─── FILTERS ───────────────────────────────────────────
+    # ─── FILTERS ──────────────────────────────────────────────────
     col1, col2, col3 = st.columns([3,2,2])
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests…")
     with col2:
-        status_filter = st.selectbox(
-            "Status", ["All","Imprimir","Impresa","Separar y Confirmar","Recibido / Procesando","Pendiente","Separado - Pendiente","COMPLETE","READY","CANCELLED","IN TRANSIT"]
-        )
+        status_options = [
+            "All",
+            "IMPRIMIR","IMPRESA","SEPARAR Y CONFIRMAR","RECIBIDO / PROCESANDO","PENDIENTE","SEPARADO - PENDIENTE",
+            "COMPLETE","READY","CANCELLED","IN TRANSIT"
+        ]
+        status_filter = st.selectbox("Status", status_options)
     with col3:
         type_filter = st.selectbox("Request type", ["All","💲 Purchase","🛒 Sales"])
 
-    # ─── ACCESS-BASED BASE LIST ─────────────────────────────
+    # ─── ACCESS SCOPE ─────────────────────────────────────────────
     all_requests = st.session_state.requests
     if user in BODEGA:
         base_requests = all_requests
     else:
         base_requests = [r for r in all_requests if r.get("Type") == "🛒"]
 
-    # ─── BUILD & SORT FILTERED LIST ────────────────────────
+    # ─── APPLY FILTERS ────────────────────────────────────────────
+    def _matches_status(r):
+        if status_filter == "All":
+            return True
+        return r.get("Status","").upper() == status_filter
+
+    def _matches_type(r):
+        if type_filter == "All":
+            return True
+        return r.get("Type") == type_filter.split()[0]  # "💲" or "🛒"
+
     filtered_requests = [
         r for r in base_requests
-        if r.get("Type") != "📑"
-           and search_term.lower() in json.dumps(r).lower()
-           and (status_filter == "All" or r.get("Status","").upper() == status_filter)
-           and (type_filter   == "All" or r.get("Type") == type_filter.split()[0])
+        if r.get("Type") in {"💲","🛒"}
+        and (search_term.lower() in json.dumps(r).lower())
+        and _matches_status(r)
+        and _matches_type(r)
     ]
+
     def parse_eta(r):
         try:
-            return datetime.strptime(r["ETA Date"], "%Y-%m-%d").date()
+            return datetime.strptime(r.get("ETA Date",""), "%Y-%m-%d").date()
         except:
             return date.max
+
     filtered_requests = sorted(filtered_requests, key=parse_eta)
 
-    # ─── EXPORT + NEW BUTTONS ─────────────────────────────
+    # ─── EXPORT + NEW BUTTONS ─────────────────────────────────────
     col_exp, col_po, col_so = st.columns([3,1,1])
-    with col_exp:
-        csv_data = pd.DataFrame([...]).to_csv(index=False).encode("utf-8")  # existing export logic
-        st.download_button("📥 Export Filtered Requests to CSV", csv_data, "requests_export.csv", "text/csv", use_container_width=True)
 
-    # ─── NEW PURCHASE/SALES ORDER BUTTONS ─────────────────
+    with col_exp:
+        include_prices = (user in PRICE_ALLOWED)
+
+        def _join(v):
+            return ", ".join(map(str, v)) if isinstance(v, list) else ("" if v is None else str(v))
+
+        def _fmt_money_list(lst):
+            if not isinstance(lst, list):
+                lst = [lst]
+            out = []
+            for x in lst:
+                try:
+                    out.append(f"${int(float(x))}")
+                except:
+                    out.append(str(x))
+            return ", ".join(out)
+
+        rows = []
+        for r in filtered_requests:
+            is_po = (r.get("Type") == "💲")
+            row = {
+                "Type": r.get("Type",""),
+                "Ref#": r.get("Invoice","") if is_po else r.get("Order#",""),
+                "Description": _join(r.get("Description", [])),
+                "Qty": _join(r.get("Quantity", [])),
+                "Status": r.get("Status",""),
+                "Ordered Date": r.get("Date",""),
+                "ETA Date": r.get("ETA Date",""),
+                "Shipping Method": r.get("Shipping Method",""),
+                "Encargado": r.get("Encargado",""),
+                "Partner": r.get("Proveedor","") if is_po else r.get("Cliente",""),
+                "Pago": r.get("Pago",""),
+            }
+            if include_prices:
+                if is_po:
+                    row["Cost"] = _fmt_money_list(r.get("Cost", []))
+                else:
+                    row["Sale Price"] = _fmt_money_list(r.get("Sale Price", []))
+            rows.append(row)
+
+        df_export = pd.DataFrame(rows)
+        st.download_button(
+            "📥 Export Filtered Requests to CSV",
+            df_export.to_csv(index=False).encode("utf-8"),
+            "requests_export.csv",
+            "text/csv",
+            use_container_width=True
+        )
+
     with col_po:
         if user in PURCHASE_CREATORS:
             if st.button("💲 New Purchase Order", use_container_width=True):
                 st.session_state.show_new_po = True
                 st.rerun()
         else:
-            st.button("💲 New Purchase Order", disabled=True, use_container_width=True)
+            st.button("🔒 New Purchase Order", disabled=True, use_container_width=True)
+            st.caption("You don’t have permission to create POs.")
+
     with col_so:
         if user in SALES_CREATORS:
             if st.button("🛒 New Sales Order", use_container_width=True):
@@ -732,58 +913,51 @@ if st.session_state.page == "requests":
         else:
             st.button("🛒 New Sales Order", disabled=True, use_container_width=True)
 
-    # ─── DISPLAY TABLE ───────────────────────────────────
+    # ─── TABLE RENDERING ──────────────────────────────────────────
     if filtered_requests:
         st.markdown("""
         <style>
-        .header-row { font-weight:bold; font-size:18px; padding:0.5rem 0; }
-        .type-icon  { font-size:18px; }
-        .unread-badge { background-color:#2ecc71; color:#fff; padding:4px 8px; border-radius:12px; display:inline-block; }
-        .overdue-icon { color:#e74c3c; font-weight:600; font-size:14px; margin-left:6px; vertical-align:middle; }
+          .header-row   { font-weight:bold; font-size:18px; padding:0.5rem 0; }
+          .type-icon    { font-size:18px; }
+          .unread-badge { background-color:#2ecc71; color:#fff; padding:4px 8px; border-radius:12px; display:inline-block; }
+          .overdue-icon { color:#e74c3c; font-weight:600; font-size:14px; margin-left:6px; vertical-align:middle; }
         </style>
         """, unsafe_allow_html=True)
 
         today = date.today()
-        allowed_users = {"Andres", "Luz", "Tito", "David"}
 
         def render_table(requests_list):
-            # Determine columns
-            if user in allowed_users:
+            if user in PRICE_ALLOWED:
                 widths = [1,1,2,2,1,2,2,2,2,2,2,1]
                 headers = ["","Type","Ref#","Description","Qty","Cost/Sales Price","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
             else:
                 widths = [1,1,2,3,1,2,2,2,2,2,1]
                 headers = ["","Type","Ref#","Description","Qty","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
 
-            # Header
             cols_hdr = st.columns(widths)
             for c,h in zip(cols_hdr, headers):
                 c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
 
             for req in requests_list:
-                idx = st.session_state.requests.index(req)
+                idx  = st.session_state.requests.index(req)
                 cols = st.columns(widths)
 
-                # Unread badge
                 comments_list = st.session_state.comments.get(str(idx), [])
                 for c in comments_list:
                     c.setdefault("read_by", [])
                 unread_cnt = sum(1 for c in comments_list if user not in c["read_by"] and c.get("author") != user)
                 cols[0].markdown(f"<span class='unread-badge'>💬{unread_cnt}</span>" if unread_cnt>0 else "", unsafe_allow_html=True)
 
-                # Type icon
                 cols[1].markdown(f"<span class='type-icon'>{req['Type']}</span>", unsafe_allow_html=True)
-                # Ref#/Invoice
                 cols[2].write(req.get("Invoice","") if req["Type"]=="💲" else req.get("Order#",""))
-                # Description
+
                 desc = req.get("Description",[])
                 cols[3].write(", ".join(desc) if isinstance(desc,list) else desc)
-                # Quantity
+
                 qty = req.get("Quantity",[])
                 cols[4].write(", ".join(map(str,qty)) if isinstance(qty,list) else qty)
 
-                # Cost/Sales Price if allowed
-                if user in allowed_users:
+                if user in PRICE_ALLOWED:
                     raw_list = req.get("Cost",[]) if req["Type"]=="💲" else req.get("Sale Price",[])
                     formatted = []
                     for v in raw_list:
@@ -797,7 +971,6 @@ if st.session_state.page == "requests":
                 else:
                     status_idx = 5
 
-                # Status + overdue
                 stt = req.get("Status","").upper()
                 eta = req.get("ETA Date","")
                 try:
@@ -809,13 +982,11 @@ if st.session_state.page == "requests":
                     badge_html += "<abbr title='Overdue'><span class='overdue-icon'>⚠️</span></abbr>"
                 cols[status_idx].markdown(badge_html, unsafe_allow_html=True)
 
-                # Dates, shipping, encargado
                 cols[status_idx+1].write(req.get("Date",""))
                 cols[status_idx+2].write(eta)
                 cols[status_idx+3].write(req.get("Shipping Method",""))
                 cols[status_idx+4].write(req.get("Encargado",""))
 
-                # Actions
                 action_idx = len(widths)-1
                 with cols[action_idx]:
                     a1, a2 = st.columns([1,1])
@@ -823,13 +994,17 @@ if st.session_state.page == "requests":
                         for c in comments_list:
                             if c.get("author") != user and user not in c["read_by"]:
                                 c["read_by"].append(user)
-                        save_data()
+                        save_data()  # persists JSON (and if your global save_data also exports, even better)
                         st.session_state.selected_request = idx
                         go_to("detail")
                     if a2.button("❌", key=f"delete_{idx}"):
                         delete_request(idx)
+                        # export after delete
+                        try:
+                            export_snapshot_to_disk()
+                        except Exception as e:
+                            st.warning(f"Auto-export failed: {e}")
 
-        # Render tables
         if user == "Bodega":
             po_requests = [r for r in filtered_requests if r["Type"] == "💲"]
             so_requests = [r for r in filtered_requests if r["Type"] == "🛒"]
@@ -843,10 +1018,9 @@ if st.session_state.page == "requests":
     else:
         st.warning("No matching requests found.")
 
-    # ─── BACK TO HOME ─────────────────────────────────────────
+    # ─── BACK TO HOME ─────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
-        go_to("home") 
-
+        go_to("home")
 ####
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -1135,10 +1309,6 @@ if st.session_state.page == "detail":
                 add_comment(index, st.session_state.user_name, "", attachment=fn)
                 st.success(f"Uploaded: {uploaded_file.name}")
                 st.rerun()
-
-
-
-
 ####
 
 elif st.session_state.page == "req_list":
