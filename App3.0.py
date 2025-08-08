@@ -9,35 +9,50 @@ import plotly.express as px
 
 
 # ----- AUTO EXPORT CONFIG (writes to ~/Downloads/Automation_Project_Titos) -----
-# ----- AUTO EXPORT CONFIG (Mac path + container-safe fallback) -----
-import os
+# ----- AUTO EXPORT CONFIG (portable: Mac dev + Streamlit Cloud) -----
+import os, platform
 from pathlib import Path
 
-# Your Mac path (what you want)
-HOST_EXPORT_DIR = Path("/Users/davidrestrepo/Downloads/Automation_Project_Titos")
+def choose_export_dir() -> Path:
+    # 1) Explicit env var wins (also works on Streamlit Cloud via secrets)
+    env = os.environ.get("HELP_CENTER_EXPORT_DIR")
+    if env:
+        p = Path(env).expanduser()
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        except Exception:
+            pass  # fall through
 
-# If running in a dev container, write inside the repo so Finder can see it
-PROJECT_ROOT = Path.cwd()                      # streamlit run from repo root
-CONTAINER_FALLBACK = PROJECT_ROOT / "exports"  # shows up next to your code
+    # 2) Local Mac dev path (your Downloads)
+    mac_path = Path("/Users/davidrestrepo/Downloads/Automation_Project_Titos")
+    if platform.system() == "Darwin":
+        try:
+            mac_path.mkdir(parents=True, exist_ok=True)
+            return mac_path
+        except Exception:
+            pass  # fall through
 
-# Choose export dir:
-if "HELP_CENTER_EXPORT_DIR" in os.environ:
-    EXPORT_DIR = Path(os.environ["HELP_CENTER_EXPORT_DIR"]).expanduser()
-else:
-    home = Path.home()
-    if str(home).startswith("/home/vscode") or str(home).startswith("/home/codespace"):
-        EXPORT_DIR = CONTAINER_FALLBACK
-    else:
-        EXPORT_DIR = HOST_EXPORT_DIR
+    # 3) Final fallback: a writable folder inside the repo (works on Streamlit Cloud)
+    p = Path.cwd() / "exports"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
-EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+EXPORT_DIR = choose_export_dir()
 
+# Files we write
 EXPORT_ORDERS_CSV       = str(EXPORT_DIR / "orders.csv")
 EXPORT_REQUIREMENTS_CSV = str(EXPORT_DIR / "requirements.csv")
 EXPORT_COMMENTS_CSV     = str(EXPORT_DIR / "comments.csv")
 EXPORT_XLSX             = str(EXPORT_DIR / "HelpCenter_Snapshot.xlsx")
 
+# Persistent snapshot + uploads (for restore after hibernation)
+DATA_SNAPSHOT_JSON = str(EXPORT_DIR / "data_snapshot.json")
+PERSIST_UPLOADS_DIR = EXPORT_DIR / "uploads"
+PERSIST_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
+# (Optional) show where we’re writing
+st.caption(f"Auto-export folder: {EXPORT_DIR.resolve()}")
 
 
 
