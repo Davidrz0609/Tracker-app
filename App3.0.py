@@ -3,243 +3,172 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import hashlib
+import logging
 from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
-
-
-# ----- AUTO EXPORT CONFIG (portable: Codespaces + Streamlit Cloud + Mac) -----
 from pathlib import Path
-import os, platform
+import platform
 
-# ----- PORTABLE EXPORT CONFIG (no secrets) -----
-from pathlib import Path
-import os, platform
+# ========================================
+# CONFIGURATION & CONSTANTS
+# ========================================
 
-def choose_export_dir() -> Path:
-    # 1) If you set HELP_CENTER_EXPORT_DIR in Streamlit Cloud (optional), use it
-    env = os.environ.get("HELP_CENTER_EXPORT_DIR")
-    if env:
-        p = Path(env).expanduser()
-        try:
-            p.mkdir(parents=True, exist_ok=True)
-            return p
-        except Exception:
-            pass  # fall through
-
-    # 2) Local Mac dev: ~/Downloads/Automation_Project_Titos
-    if platform.system() == "Darwin":
-        mac_path = Path.home() / "Downloads" / "Automation_Project_Titos"
-        try:
-            mac_path.mkdir(parents=True, exist_ok=True)
-            return mac_path
-        except Exception:
-            pass  # fall through
-
-    # 3) Fallback: repo-local ./exports (works in Codespaces & Streamlit Cloud)
-    p = Path.cwd() / "exports"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-EXPORT_DIR = choose_export_dir()
-EXPORT_ORDERS_CSV       = str(EXPORT_DIR / "orders.csv")
-EXPORT_REQUIREMENTS_CSV = str(EXPORT_DIR / "requirements.csv")
-EXPORT_COMMENTS_CSV     = str(EXPORT_DIR / "comments.csv")
-EXPORT_XLSX             = str(EXPORT_DIR / "HelpCenter_Snapshot.xlsx")
-EXPORT_JSON             = str(EXPORT_DIR / "HelpCenter_Snapshot.json")
-
-
-
-def rebuild_from_csvs():
-    """Fallback: rebuild requests/comments from the exported CSVs."""
-    import pandas as pd
-
-    reqs_by_old = {}
-
-    # Orders (PO/SO)
-    if os.path.exists(EXPORT_ORDERS_CSV) and os.path.getsize(EXPORT_ORDERS_CSV) > 0:
-        odf = pd.read_csv(EXPORT_ORDERS_CSV).fillna("")
-        for old_idx, g in odf.groupby("RequestIndex"):
-            t    = str(g["Type"].iloc[0])                 # "💲" or "🛒"
-            ref  = str(g["Ref#"].iloc[0])
-            stat = str(g["Status"].iloc[0])
-            dte  = str(g["Ordered Date"].iloc[0])
-            eta  = str(g["ETA Date"].iloc[0])
-            ship = str(g["Shipping Method"].iloc[0])
-            enc  = str(g["Encargado"].iloc[0])
-            pago = str(g["Pago"].iloc[0])
-            partner = str(g["Partner"].iloc[0])
-
-            descs  = [str(x) for x in g["Description"].tolist()]
-            qtys   = [x for x in g["Qty"].tolist()]
-            prices = [x for x in g["Price"].tolist()]
-
-            base = {
-                "Status": stat,
-                "Date": dte,
-                "ETA Date": eta,
-                "Shipping Method": ship,
-                "Encargado": enc,
-                "Pago": pago,
-                "Description": descs,
-                "Quantity": qtys,
-            }
-
-            if t == "💲":
-                req = {**base,
-                    "Type": "💲",
-                    "Invoice": ref,
-                    "Order#": "",
-                    "Cost": prices,
-                    "Proveedor": partner
-                }
-            else:
-                req = {**base,
-                    "Type": "🛒",
-                    "Order#": ref,
-                    "Invoice": "",
-                    "Sale Price": prices,
-                    "Cliente": partner
-                }
-            reqs_by_old[int(old_idx)] = req
-
-    # Requirements (📑)
-    if os.path.exists(EXPORT_REQUIREMENTS_CSV) and os.path.getsize(EXPORT_REQUIREMENTS_CSV) > 0:
-        rdf = pd.read_csv(EXPORT_REQUIREMENTS_CSV).fillna("")
-        for old_idx, g in rdf.groupby("RequestIndex"):
-            items = []
-            for _, row in g.iterrows():
-                items.append({
-                    "Description": str(row.get("Description","")),
-                    "Target Price": str(row.get("Target Price","")),
-                    "QTY": row.get("Qty","")
-                })
-            reqs_by_old[int(old_idx)] = {
-                "Type": "📑",
-                "Items": items,
-                "Vendedor Encargado": str(g["Vendedor Encargado"].iloc[0]) if "Vendedor Encargado" in g else "",
-                "Comprador Encargado": str(g["Comprador Encargado"].iloc[0]) if "Comprador Encargado" in g else "",
-                "Fecha": str(g["Fecha"].iloc[0]) if "Fecha" in g else "",
-                "Status": str(g["Status"].iloc[0]) if "Status" in g else "OPEN",
-            }
-
-    # Comments
-    comments_old = {}
-    if os.path.exists(EXPORT_COMMENTS_CSV) and os.path.getsize(EXPORT_COMMENTS_CSV) > 0:
-        cdf = pd.read_csv(EXPORT_COMMENTS_CSV).fillna("")
-        for old_idx, g in cdf.groupby("RequestIndex"):
-            lst = []
-            for _, row in g.iterrows():
-                entry = {
-                    "author": str(row.get("Author","")),
-                    "when": str(row.get("When","")),
-                    "text": str(row.get("Text","")),
-                }
-                att = str(row.get("Attachment",""))
-                if att.strip():
-                    entry["attachment"] = att
-                lst.append(entry)
-            comments_old[int(old_idx)] = lst
-
-    # Reindex requests contiguously and remap comment keys
-    sorted_pairs = sorted(reqs_by_old.items())  # [(old_idx, req), ...]
-    requests, idx_map = [], {}
-    for new_idx, (old_idx, req) in enumerate(sorted_pairs):
-        idx_map[old_idx] = new_idx
-        requests.append(req)
-
-    comments = {}
-    for old_idx, lst in comments_old.items():
-        if old_idx in idx_map:
-            comments[str(idx_map[old_idx])] = lst
-
-    return requests, comments
-
-
-def try_restore_from_snapshot():
-    """If local JSONs are empty/missing, restore from snapshot JSON, else from CSVs."""
-    # Prefer JSON snapshot (exact structure)
-    if os.path.exists(EXPORT_JSON) and os.path.getsize(EXPORT_JSON) > 0:
-        try:
-            with open(EXPORT_JSON, "r", encoding="utf-8") as f:
-                snap = json.load(f)
-            st.session_state.requests = snap.get("requests", [])
-            st.session_state.comments = snap.get("comments", {})
-            # write back the primary JSONs so normal load() works next run
-            with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(st.session_state.requests, f, ensure_ascii=False, indent=2)
-            with open(COMMENTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(st.session_state.comments, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            st.warning(f"JSON snapshot restore failed: {e}")
-
-    # Fallback: rebuild from CSVs
-    try:
-        requests, comments = rebuild_from_csvs()
-        if requests:
-            st.session_state.requests = requests
-            st.session_state.comments = comments
-            with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(requests, f, ensure_ascii=False, indent=2)
-            with open(COMMENTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(comments, f, ensure_ascii=False, indent=2)
-            return True
-    except Exception as e:
-        st.warning(f"CSV restore failed: {e}")
-
-    return False
-
-
-
-
-
-
-# -------------------------------------------
-# ------- APP CONFIG + STATE INITIALIZATION --
-# -------------------------------------------
-st.set_page_config(page_title="Tito's Depot Help Center", layout="wide", page_icon="🛒")
-
-REQUESTS_FILE = "requests.json"
-COMMENTS_FILE = "comments.json"
-UPLOADS_DIR = "uploads"
-
-# Ensure the uploads directory exists
-os.makedirs(UPLOADS_DIR, exist_ok=True)
-
-# Example users (username: password)
-VALID_USERS = {
-    "Andres": "123",
-    "Marcela": "123",
-    "Tito": "123",
-    "Luz": "123",
-    "David": "123",
-    "John": "123",
-    "Sabrina": "123",
-    "Bodega": "123", 
-    "Carolina" : "123",   
-    "Facturacion" : "123"
-}
-
-# Helper: Colored Status Badge
-def format_status_badge(status):
-    status = status.upper()
-    color_map = {
+class Config:
+    """Centralized configuration"""
+    # File paths
+    REQUESTS_FILE = "requests.json"
+    COMMENTS_FILE = "comments.json"
+    UPLOADS_DIR = "uploads"
+    
+    # User authentication (hashed passwords)
+    VALID_USERS = {
+        "Andres": hashlib.sha256("123".encode()).hexdigest(),
+        "Marcela": hashlib.sha256("123".encode()).hexdigest(),
+        "Tito": hashlib.sha256("123".encode()).hexdigest(),
+        "Luz": hashlib.sha256("123".encode()).hexdigest(),
+        "David": hashlib.sha256("123".encode()).hexdigest(),
+        "John": hashlib.sha256("123".encode()).hexdigest(),
+        "Sabrina": hashlib.sha256("123".encode()).hexdigest(),
+        "Bodega": hashlib.sha256("123".encode()).hexdigest(),
+        "Carolina": hashlib.sha256("123".encode()).hexdigest(),
+        "Facturacion": hashlib.sha256("123".encode()).hexdigest()
+    }
+    
+    # Access control groups
+    SUMMARY_ALLOWED = {"Andres", "David", "Tito", "Luz"}
+    SALES_CREATORS = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina"}
+    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David"}
+    PRICE_ALLOWED = {"Andres", "Luz", "Tito", "David"}
+    BODEGA_USERS = {"Bodega", "Andres", "Tito", "Luz", "David"}
+    REQS_DENIED = {"Bodega"}
+    
+    # Status options
+    STATUS_OPTIONS = [
+        "IMPRIMIR", "IMPRESA", "SEPARAR Y CONFIRMAR",
+        "RECIBIDO / PROCESANDO", "PENDIENTE", 
+        "SEPARADO - PENDIENTE", "COMPLETE", "READY", 
+        "CANCELLED", "IN TRANSIT", "RETURNED/CANCELLED"
+    ]
+    
+    # Status colors
+    STATUS_COLORS = {
         "IN TRANSIT": "#f39c12",
-        "READY": "#2ecc71",
+        "READY": "#2ecc71", 
         "COMPLETE": "#3498db",
         "ORDERED": "#9b59b6",
         "CANCELLED": "#e74c3c",
-        "IMPRIMIR":             "#f1c40f",
-        "IMPRESA":              "#27ae60",
-        "SEPARAR Y CONFIRMAR":  "#1abc9c",
-        "RECIBIDO / PROCESANDO":"#2980b9",
-        "PENDIENTE":            "#95a5a6",
+        "IMPRIMIR": "#f1c40f",
+        "IMPRESA": "#27ae60",
+        "SEPARAR Y CONFIRMAR": "#1abc9c",
+        "RECIBIDO / PROCESANDO": "#2980b9",
+        "PENDIENTE": "#95a5a6",
         "SEPARADO - PENDIENTE": "#d35400",
-        "RETURNED/CANCELLED":   "#c0392b"
-
+        "RETURNED/CANCELLED": "#c0392b"
     }
-    color = color_map.get(status, "#7f8c8d")
+    
+    # Auto-refresh settings (optimized)
+    REFRESH_INTERVAL = 5000  # 5 seconds instead of 1
+    REFRESH_LIMIT = 200      # Limit refreshes
+
+# ========================================
+# LOGGING SETUP
+# ========================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('help_center.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# ========================================
+# UTILITY FUNCTIONS
+# ========================================
+
+def hash_password(password):
+    """Hash password for secure storage"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(username, password):
+    """Verify user credentials"""
+    stored_hash = Config.VALID_USERS.get(username)
+    return stored_hash == hash_password(password)
+
+def safe_load_json(filepath, default=None):
+    """Safely load JSON with comprehensive error handling"""
+    try:
+        if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+            return default or []
+        
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            logger.info(f"Successfully loaded {filepath}")
+            return data
+    except (json.JSONDecodeError, IOError, OSError) as e:
+        logger.error(f"Error loading {filepath}: {e}")
+        st.error(f"Error loading data from {filepath}")
+        return default or []
+
+def safe_save_json(filepath, data):
+    """Safely save JSON with error handling"""
+    try:
+        # Create backup before saving
+        if os.path.exists(filepath):
+            backup_path = f"{filepath}.backup"
+            os.rename(filepath, backup_path)
+        
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"Successfully saved {filepath}")
+        return True
+    except (IOError, OSError) as e:
+        logger.error(f"Error saving {filepath}: {e}")
+        st.error(f"Error saving data to {filepath}")
+        return False
+
+def validate_request_data(request_data):
+    """Validate request data before saving"""
+    required_fields = ['Type', 'Status', 'Encargado']
+    
+    for field in required_fields:
+        if not request_data.get(field) or request_data[field] == " ":
+            raise ValueError(f"Required field '{field}' is missing or empty")
+    
+    # Validate quantities are numeric where expected
+    if 'Quantity' in request_data and isinstance(request_data['Quantity'], list):
+        for i, qty in enumerate(request_data['Quantity']):
+            if qty != "" and qty is not None:
+                try:
+                    float(qty)
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid quantity at index {i}: {qty}")
+    
+    # Validate prices are numeric where expected
+    price_fields = ['Cost', 'Sale Price']
+    for price_field in price_fields:
+        if price_field in request_data and isinstance(request_data[price_field], list):
+            for i, price in enumerate(request_data[price_field]):
+                if price != "" and price is not None:
+                    try:
+                        float(price)
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid {price_field} at index {i}: {price}")
+    
+    return True
+
+def format_status_badge(status):
+    """Create colored status badge"""
+    if not status:
+        return ""
+    
+    status = status.upper()
+    color = Config.STATUS_COLORS.get(status, "#7f8c8d")
     return f"""
     <span style="
         background-color: {color};
@@ -252,260 +181,8 @@ def format_status_badge(status):
     ">{status}</span>
     """
 
-# Persistence Helpers
-
-def load_data():
-    # Load requests
-    if os.path.exists(REQUESTS_FILE) and os.path.getsize(REQUESTS_FILE) > 0:
-        try:
-            with open(REQUESTS_FILE, "r", encoding="utf-8") as f:
-                st.session_state.requests = json.load(f)
-        except json.JSONDecodeError:
-            st.session_state.requests = []
-    else:
-        st.session_state.requests = []
-
-    # Load comments
-    if os.path.exists(COMMENTS_FILE) and os.path.getsize(COMMENTS_FILE) > 0:
-        try:
-            with open(COMMENTS_FILE, "r", encoding="utf-8") as f:
-                st.session_state.comments = json.load(f)
-        except json.JSONDecodeError:
-            st.session_state.comments = {}
-    else:
-        st.session_state.comments = {}
-
-    # --- NEW: if both are empty, try to restore from snapshot/CSVs ---
-    if not st.session_state.requests and not st.session_state.comments:
-        if try_restore_from_snapshot():
-            st.toast("Restored data from snapshot ✅", icon="✅")
-
-def export_snapshot_to_disk():
-    """
-    Build dataframes from session state and write:
-      - CSVs: orders, requirements, comments
-      - Excel workbook with 3 sheets
-      - JSON snapshot with full structure (requests + comments)
-    Uses EXPORT_* globals if present; otherwise derives paths from EXPORT_DIR or ./exports.
-    """
-    # ── Resolve paths (robust if some globals are missing) ─────────────────────────
-    from pathlib import Path
-    export_dir = Path(globals().get("EXPORT_DIR", Path.cwd() / "exports"))
-    export_dir.mkdir(parents=True, exist_ok=True)
-
-    orders_csv    = globals().get("EXPORT_ORDERS_CSV",       str(export_dir / "orders.csv"))
-    reqs_csv      = globals().get("EXPORT_REQUIREMENTS_CSV", str(export_dir / "requirements.csv"))
-    comments_csv  = globals().get("EXPORT_COMMENTS_CSV",     str(export_dir / "comments.csv"))
-    xlsx_path     = globals().get("EXPORT_XLSX",             str(export_dir / "HelpCenter_Snapshot.xlsx"))
-    json_path     = globals().get("EXPORT_JSON",             str(export_dir / "HelpCenter_Snapshot.json"))
-
-    # ── Build Orders (PO/SO) — one row per item ───────────────────────────────────
-    orders_rows = []
-    for i, r in enumerate(st.session_state.get("requests", []) or []):
-        t = r.get("Type")
-        if t not in ("💲", "🛒"):
-            continue
-
-        descs  = r.get("Description") or []
-        qtys   = r.get("Quantity") or []
-        price_key = "Cost" if t == "💲" else "Sale Price"
-        prices = r.get(price_key) or []
-
-        n = max(len(descs), len(qtys), len(prices), 1)
-        for j in range(n):
-            orders_rows.append({
-                "RequestIndex": i,
-                "Type": t,
-                "Ref#": r.get("Invoice","") if t == "💲" else r.get("Order#",""),
-                "Item #": j + 1,
-                "Description": descs[j] if j < len(descs) else "",
-                "Qty":         qtys[j]  if j < len(qtys)  else "",
-                "Price":       prices[j] if j < len(prices) else "",
-                "Status": r.get("Status",""),
-                "Ordered Date": r.get("Date",""),
-                "ETA Date": r.get("ETA Date",""),
-                "Shipping Method": r.get("Shipping Method",""),
-                "Encargado": r.get("Encargado",""),
-                "Partner": r.get("Proveedor","") if t == "💲" else r.get("Cliente",""),
-                "Pago": r.get("Pago",""),
-            })
-    orders_df = pd.DataFrame(orders_rows)
-
-    # ── Requirements (📑) — one row per item ──────────────────────────────────────
-    req_rows = []
-    for i, r in enumerate(st.session_state.get("requests", []) or []):
-        if r.get("Type") != "📑":
-            continue
-        for j, it in enumerate(r.get("Items", []) or []):
-            req_rows.append({
-                "RequestIndex": i,
-                "Item #": j + 1,
-                "Description": it.get("Description",""),
-                "Target Price": it.get("Target Price",""),
-                "Qty": it.get("QTY",""),
-                "Vendedor Encargado":  r.get("Vendedor Encargado",""),
-                "Comprador Encargado": r.get("Comprador Encargado",""),
-                "Fecha": r.get("Fecha",""),
-                "Status": r.get("Status","OPEN"),
-            })
-    req_df = pd.DataFrame(req_rows)
-
-    # ── Comments ──────────────────────────────────────────────────────────────────
-    comments_rows = []
-    for k, comments in (st.session_state.get("comments", {}) or {}).items():
-        try:
-            k_int = int(k)
-        except Exception:
-            k_int = k
-        for c in comments or []:
-            comments_rows.append({
-                "RequestIndex": k_int,
-                "Author": c.get("author",""),
-                "When":   c.get("when",""),
-                "Text":   c.get("text",""),
-                "Attachment": c.get("attachment",""),
-            })
-    comments_df = pd.DataFrame(comments_rows)
-
-    # ── Write CSVs ────────────────────────────────────────────────────────────────
-    orders_df.to_csv(orders_csv, index=False, encoding="utf-8-sig")
-    req_df.to_csv(reqs_csv, index=False, encoding="utf-8-sig")
-    comments_df.to_csv(comments_csv, index=False, encoding="utf-8-sig")
-
-    # ── Write Excel (fallback if the file is open) ────────────────────────────────
-    try:
-        with pd.ExcelWriter(xlsx_path) as xls:
-            orders_df.to_excel(xls, index=False, sheet_name="Orders")
-            req_df.to_excel(xls, index=False, sheet_name="Requirements")
-            comments_df.to_excel(xls, index=False, sheet_name="Comments")
-        xlsx_out = xlsx_path
-    except PermissionError:
-        alt = export_dir / f"HelpCenter_Snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        with pd.ExcelWriter(str(alt)) as xls:
-            orders_df.to_excel(xls, index=False, sheet_name="Orders")
-            req_df.to_excel(xls, index=False, sheet_name="Requirements")
-            comments_df.to_excel(xls, index=False, sheet_name="Comments")
-        xlsx_out = str(alt)
-        st.warning(f"Excel is open. Saved snapshot to {alt}.")
-
-    # ── Write JSON snapshot (authoritative restore source) ────────────────────────
-    try:
-        snap = {
-            "requests": st.session_state.get("requests", []),
-            "comments": st.session_state.get("comments", {})
-        }
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(snap, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        st.warning(f"Snapshot JSON not saved: {e}")
-
-    # Optional: return paths for logging/diagnostics
-    return {
-        "orders_csv": orders_csv,
-        "requirements_csv": reqs_csv,
-        "comments_csv": comments_csv,
-        "xlsx": xlsx_out,
-        "json": json_path,
-    }
-
-
-
-def save_data():
-    with open(REQUESTS_FILE, "w") as f:
-        json.dump(st.session_state.requests, f, indent=2)
-    with open(COMMENTS_FILE, "w") as f:
-        json.dump(st.session_state.comments, f, indent=2)
-    try:
-        export_snapshot_to_disk()
-    except Exception as e:
-        st.warning(f"Auto-export failed: {e}")
-
-
-def add_request(data):
-    idx = len(st.session_state.requests)
-    st.session_state.requests.append(data)
-    st.session_state.comments[str(idx)] = []
-    save_data()
-
-
-def add_comment(index, author, text="", attachment=None):
-    key = str(index)
-    if key not in st.session_state.comments:
-        st.session_state.comments[key] = []
-    comment_entry = {
-        "author": author,
-        "text": text,
-        "when": datetime.now().strftime("%Y-%m-%d %H:%M")
-    }
-    if attachment:
-        comment_entry["attachment"] = attachment
-    st.session_state.comments[key].append(comment_entry)
-    save_data()
-
-
-def delete_request(index):
-    if 0 <= index < len(st.session_state.requests):
-        st.session_state.requests.pop(index)
-        st.session_state.comments.pop(str(index), None)
-        # Re-index
-        st.session_state.comments = {str(i): st.session_state.comments.get(str(i), [])
-                                     for i in range(len(st.session_state.requests))}
-        save_data()
-        st.success("🗑️ Request deleted successfully.")
-        st.session_state.page = "requests"
-        st.rerun()
-
-
-def go_to(page):
-    st.session_state.page = page
-    st.rerun()
-
-# Initialize session state keys
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-if "user_name" not in st.session_state:
-    st.session_state.user_name = ""
-if "page" not in st.session_state:
-    st.session_state.page = "login"
-if "requests" not in st.session_state or "comments" not in st.session_state:
-    load_data()
-if "selected_request" not in st.session_state:
-    st.session_state.selected_request = None
-
-# -------------------------------------------
-# ---------------- LOGIN PAGE ----------------
-# -------------------------------------------
-if not st.session_state.authenticated:
-    st.markdown("# 🔒 Please Log In")
-    st.write("Enter your username and password to continue.")
-    username_input = st.text_input("Username")
-    password_input = st.text_input("Password", type="password")
-    if st.button("🔑 Log In"):
-        if username_input in VALID_USERS and VALID_USERS[username_input] == password_input:
-            st.session_state.authenticated = True
-            st.session_state.user_name = username_input
-            st.session_state.page = "home"
-            st.success(f"Welcome, **{username_input}**!")
-            st.rerun()
-        else:
-            st.error("❌ Invalid username or password.")
-    st.stop()
-
-
-
-
-# ──────────────────────────────────────────────────────────────────────
-# ---------------- HOME PAGE (with locked Summary & Requerimientos) ----
-# ──────────────────────────────────────────────────────────────────────
-
-# ── Who’s allowed to view the Summary page?
-SUMMARY_ALLOWED = {"Andres", "David", "Tito", "Luz"}
-
-# ── Who’s NOT allowed to view Requerimientos Clientes?
-REQS_DENIED = {"Bodega"}
-
-if st.session_state.page == "home":
-    # Global styling
+def apply_global_styling():
+    """Apply consistent styling across the app"""
     st.markdown("""
     <style>
     html, body, [class*="css"] {
@@ -515,6 +192,14 @@ if st.session_state.page == "home":
         color: #003366;
         font-weight: 700;
         margin-bottom: 0.5rem;
+    }
+    .stTextInput > div > div > input,
+    .stSelectbox > div > div > div,
+    .stDateInput > div > div > input {
+        border-radius: 8px !important;
+        border: 1px solid #dfe6ec !important;
+        padding: 0.5rem !important;
+        background-color: #f7f9fc !important;
     }
     div.stButton > button {
         background-color: #ffffff !important;
@@ -530,106 +215,469 @@ if st.session_state.page == "home":
         background-color: #f1f1f1 !important;
         border-color: #999 !important;
     }
+    .metric-container {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #007bff;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-    # Logout button
-    with st.container():
-        if st.button("🚪 Log Out", key="home_logout"):
+# ========================================
+# EXPORT FUNCTIONALITY
+# ========================================
+
+def choose_export_dir():
+    """Choose appropriate export directory"""
+    env = os.environ.get("HELP_CENTER_EXPORT_DIR")
+    if env:
+        p = Path(env).expanduser()
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        except Exception:
+            pass
+
+    if platform.system() == "Darwin":
+        mac_path = Path.home() / "Downloads" / "Automation_Project_Titos"
+        try:
+            mac_path.mkdir(parents=True, exist_ok=True)
+            return mac_path
+        except Exception:
+            pass
+
+    p = Path.cwd() / "exports"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+EXPORT_DIR = choose_export_dir()
+EXPORT_ORDERS_CSV = str(EXPORT_DIR / "orders.csv")
+EXPORT_REQUIREMENTS_CSV = str(EXPORT_DIR / "requirements.csv")
+EXPORT_COMMENTS_CSV = str(EXPORT_DIR / "comments.csv")
+EXPORT_XLSX = str(EXPORT_DIR / "HelpCenter_Snapshot.xlsx")
+EXPORT_JSON = str(EXPORT_DIR / "HelpCenter_Snapshot.json")
+
+def export_snapshot_to_disk():
+    """Export data to various formats with error handling"""
+    try:
+        from pathlib import Path
+        export_dir = Path(EXPORT_DIR)
+        export_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build Orders DataFrame
+        orders_rows = []
+        for i, r in enumerate(st.session_state.get("requests", []) or []):
+            t = r.get("Type")
+            if t not in ("💲", "🛒"):
+                continue
+
+            descs = r.get("Description") or []
+            qtys = r.get("Quantity") or []
+            price_key = "Cost" if t == "💲" else "Sale Price"
+            prices = r.get(price_key) or []
+
+            n = max(len(descs), len(qtys), len(prices), 1)
+            for j in range(n):
+                orders_rows.append({
+                    "RequestIndex": i,
+                    "Type": t,
+                    "Ref#": r.get("Invoice","") if t == "💲" else r.get("Order#",""),
+                    "Item #": j + 1,
+                    "Description": descs[j] if j < len(descs) else "",
+                    "Qty": qtys[j] if j < len(qtys) else "",
+                    "Price": prices[j] if j < len(prices) else "",
+                    "Status": r.get("Status",""),
+                    "Ordered Date": r.get("Date",""),
+                    "ETA Date": r.get("ETA Date",""),
+                    "Shipping Method": r.get("Shipping Method",""),
+                    "Encargado": r.get("Encargado",""),
+                    "Partner": r.get("Proveedor","") if t == "💲" else r.get("Cliente",""),
+                    "Pago": r.get("Pago",""),
+                })
+        orders_df = pd.DataFrame(orders_rows)
+
+        # Build Requirements DataFrame
+        req_rows = []
+        for i, r in enumerate(st.session_state.get("requests", []) or []):
+            if r.get("Type") != "📑":
+                continue
+            for j, it in enumerate(r.get("Items", []) or []):
+                req_rows.append({
+                    "RequestIndex": i,
+                    "Item #": j + 1,
+                    "Description": it.get("Description",""),
+                    "Target Price": it.get("Target Price",""),
+                    "Qty": it.get("QTY",""),
+                    "Vendedor Encargado": r.get("Vendedor Encargado",""),
+                    "Comprador Encargado": r.get("Comprador Encargado",""),
+                    "Fecha": r.get("Fecha",""),
+                    "Status": r.get("Status","OPEN"),
+                })
+        req_df = pd.DataFrame(req_rows)
+
+        # Build Comments DataFrame
+        comments_rows = []
+        for k, comments in (st.session_state.get("comments", {}) or {}).items():
+            try:
+                k_int = int(k)
+            except Exception:
+                k_int = k
+            for c in comments or []:
+                comments_rows.append({
+                    "RequestIndex": k_int,
+                    "Author": c.get("author",""),
+                    "When": c.get("when",""),
+                    "Text": c.get("text",""),
+                    "Attachment": c.get("attachment",""),
+                })
+        comments_df = pd.DataFrame(comments_rows)
+
+        # Write CSVs
+        orders_df.to_csv(EXPORT_ORDERS_CSV, index=False, encoding="utf-8-sig")
+        req_df.to_csv(EXPORT_REQUIREMENTS_CSV, index=False, encoding="utf-8-sig")
+        comments_df.to_csv(EXPORT_COMMENTS_CSV, index=False, encoding="utf-8-sig")
+
+        # Write Excel
+        try:
+            with pd.ExcelWriter(EXPORT_XLSX) as xls:
+                orders_df.to_excel(xls, index=False, sheet_name="Orders")
+                req_df.to_excel(xls, index=False, sheet_name="Requirements")
+                comments_df.to_excel(xls, index=False, sheet_name="Comments")
+            xlsx_out = EXPORT_XLSX
+        except PermissionError:
+            alt = export_dir / f"HelpCenter_Snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            with pd.ExcelWriter(str(alt)) as xls:
+                orders_df.to_excel(xls, index=False, sheet_name="Orders")
+                req_df.to_excel(xls, index=False, sheet_name="Requirements")
+                comments_df.to_excel(xls, index=False, sheet_name="Comments")
+            xlsx_out = str(alt)
+            st.warning(f"Excel file was locked. Saved to {alt.name}")
+
+        # Write JSON snapshot
+        snap = {
+            "requests": st.session_state.get("requests", []),
+            "comments": st.session_state.get("comments", {})
+        }
+        with open(EXPORT_JSON, "w", encoding="utf-8") as f:
+            json.dump(snap, f, ensure_ascii=False, indent=2)
+
+        logger.info("Export snapshot completed successfully")
+        return True
+
+    except Exception as e:
+        logger.error(f"Export failed: {e}")
+        st.error(f"Export failed: {str(e)}")
+        return False
+
+# ========================================
+# DATA MANAGEMENT
+# ========================================
+
+def load_data():
+    """Load requests and comments with error handling"""
+    try:
+        # Load requests
+        requests = safe_load_json(Config.REQUESTS_FILE, [])
+        st.session_state.requests = requests
+
+        # Load comments
+        comments = safe_load_json(Config.COMMENTS_FILE, {})
+        st.session_state.comments = comments
+
+        # If both are empty, try to restore from backup
+        if not requests and not comments:
+            if try_restore_from_snapshot():
+                st.toast("✅ Data restored from backup", icon="✅")
+        
+        logger.info(f"Loaded {len(requests)} requests and {len(comments)} comment threads")
+        
+    except Exception as e:
+        logger.error(f"Error in load_data: {e}")
+        st.error("Failed to load application data")
+        st.session_state.requests = []
+        st.session_state.comments = {}
+
+def save_data():
+    """Save requests and comments with error handling"""
+    try:
+        # Validate data before saving
+        for i, request in enumerate(st.session_state.requests):
+            try:
+                validate_request_data(request)
+            except ValueError as e:
+                logger.warning(f"Request {i} validation warning: {e}")
+
+        # Save files
+        if not safe_save_json(Config.REQUESTS_FILE, st.session_state.requests):
+            return False
+        
+        if not safe_save_json(Config.COMMENTS_FILE, st.session_state.comments):
+            return False
+
+        # Auto-export
+        export_snapshot_to_disk()
+        
+        logger.info("Data saved successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error in save_data: {e}")
+        st.error("Failed to save data")
+        return False
+
+def add_request(data):
+    """Add new request with validation"""
+    try:
+        validate_request_data(data)
+        
+        idx = len(st.session_state.requests)
+        st.session_state.requests.append(data)
+        st.session_state.comments[str(idx)] = []
+        
+        if save_data():
+            logger.info(f"Added new request: {data['Type']} by {st.session_state.user_name}")
+            return True
+        return False
+        
+    except ValueError as e:
+        st.error(f"Invalid request data: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Error adding request: {e}")
+        st.error("Failed to add request")
+        return False
+
+def add_comment(index, author, text="", attachment=None):
+    """Add comment with validation"""
+    try:
+        key = str(index)
+        if key not in st.session_state.comments:
+            st.session_state.comments[key] = []
+        
+        comment_entry = {
+            "author": author,
+            "text": text,
+            "when": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "read_by": [author]  # Author automatically marks as read
+        }
+        
+        if attachment:
+            comment_entry["attachment"] = attachment
+        
+        st.session_state.comments[key].append(comment_entry)
+        save_data()
+        
+        logger.info(f"Comment added by {author} to request {index}")
+        
+    except Exception as e:
+        logger.error(f"Error adding comment: {e}")
+        st.error("Failed to add comment")
+
+def delete_request(index):
+    """Delete request with confirmation"""
+    try:
+        if 0 <= index < len(st.session_state.requests):
+            deleted_request = st.session_state.requests.pop(index)
+            st.session_state.comments.pop(str(index), None)
+            
+            # Re-index comments
+            new_comments = {}
+            for i in range(len(st.session_state.requests)):
+                old_key = str(i if i < index else i + 1)
+                if old_key in st.session_state.comments:
+                    new_comments[str(i)] = st.session_state.comments[old_key]
+            
+            st.session_state.comments = new_comments
+            
+            if save_data():
+                logger.info(f"Deleted request {index}: {deleted_request.get('Type', 'Unknown')} by {st.session_state.user_name}")
+                st.success("🗑️ Request deleted successfully")
+                return True
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error deleting request: {e}")
+        st.error("Failed to delete request")
+        return False
+
+def try_restore_from_snapshot():
+    """Restore from JSON snapshot or CSV backup"""
+    try:
+        # Try JSON snapshot first
+        if os.path.exists(EXPORT_JSON) and os.path.getsize(EXPORT_JSON) > 0:
+            with open(EXPORT_JSON, "r", encoding="utf-8") as f:
+                snap = json.load(f)
+            
+            st.session_state.requests = snap.get("requests", [])
+            st.session_state.comments = snap.get("comments", {})
+            
+            # Save to primary files
+            safe_save_json(Config.REQUESTS_FILE, st.session_state.requests)
+            safe_save_json(Config.COMMENTS_FILE, st.session_state.comments)
+            
+            logger.info("Restored from JSON snapshot")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Restore from snapshot failed: {e}")
+    
+    return False
+
+# ========================================
+# NAVIGATION HELPER
+# ========================================
+
+def go_to(page):
+    """Navigate to page with logging"""
+    st.session_state.page = page
+    logger.info(f"Navigation: {st.session_state.user_name} -> {page}")
+    st.rerun()
+
+# ========================================
+# APP CONFIGURATION & INITIALIZATION
+# ========================================
+
+st.set_page_config(
+    page_title="Tito's Depot Help Center", 
+    layout="wide", 
+    page_icon="🛒",
+    initial_sidebar_state="expanded"
+)
+
+# Ensure directories exist
+os.makedirs(Config.UPLOADS_DIR, exist_ok=True)
+os.makedirs(EXPORT_DIR, exist_ok=True)
+
+# Apply global styling
+apply_global_styling()
+
+# Initialize session state
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
+if "page" not in st.session_state:
+    st.session_state.page = "login"
+if "selected_request" not in st.session_state:
+    st.session_state.selected_request = None
+
+# Load data on startup
+if "requests" not in st.session_state or "comments" not in st.session_state:
+    load_data()
+
+# ========================================
+# LOGIN PAGE
+# ========================================
+
+if not st.session_state.authenticated:
+    st.markdown("# 🔒 Please Log In")
+    st.write("Enter your username and password to continue.")
+    
+    with st.form("login_form"):
+        username_input = st.text_input("Username")
+        password_input = st.text_input("Password", type="password")
+        login_button = st.form_submit_button("🔑 Log In")
+        
+        if login_button:
+            if verify_password(username_input, password_input):
+                st.session_state.authenticated = True
+                st.session_state.user_name = username_input
+                st.session_state.page = "home"
+                logger.info(f"User logged in: {username_input}")
+                st.success(f"Welcome, **{username_input}**!")
+                st.rerun()
+            else:
+                st.error("❌ Invalid username or password.")
+                logger.warning(f"Failed login attempt: {username_input}")
+    
+    st.stop()
+
+# ========================================
+# HOME PAGE
+# ========================================
+
+if st.session_state.page == "home":
+    # Logout button in sidebar
+    with st.sidebar:
+        if st.button("🚪 Log Out"):
             st.session_state.authenticated = False
             st.session_state.user_name = ""
             st.session_state.page = "login"
+            logger.info(f"User logged out: {st.session_state.user_name}")
             st.rerun()
 
     st.markdown("# 🏠 Welcome to the Help Center")
     st.markdown(f"Logged in as: **{st.session_state.user_name}**")
     st.markdown("<hr style='margin: 1rem 0;'>", unsafe_allow_html=True)
 
-    # ── Three buttons on Home ────────────────────────────────
+    # Quick stats
+    total_requests = len(st.session_state.requests)
+    active_requests = len([r for r in st.session_state.requests 
+                          if r.get("Status", "").upper() not in ["COMPLETE", "CANCELLED"]])
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Requests", total_requests)
+    col2.metric("Active Requests", active_requests) 
+    col3.metric("My Access Level", "Admin" if st.session_state.user_name in Config.SUMMARY_ALLOWED else "User")
+
+    st.markdown("---")
+
+    # Navigation buttons
     col1, col2, col3 = st.columns(3)
 
-    # — Requerimientos Clientes (locked for Bodega) —
     with col1:
-        if st.session_state.user_name not in REQS_DENIED:
-            if st.button(
-                "📝 View Requerimientos Clientes",
-                use_container_width=True,
-                key="home_view_reqs"
-            ):
-                st.session_state.page = "req_list"
-                st.rerun()
+        if st.session_state.user_name not in Config.REQS_DENIED:
+            if st.button("📝 View Requerimientos Clientes", use_container_width=True):
+                go_to("req_list")
         else:
-            st.button(
-                "🔒 View Requerimientos Clientes",
-                disabled=True,
-                use_container_width=True,
-                key="home_view_reqs_locked"
-            )
-            st.caption("You don’t have access to this page.")
+            st.button("🔒 View Requerimientos Clientes", disabled=True, use_container_width=True)
+            st.caption("Access denied for your role")
 
-    # — All Orders (open to everyone) —
     with col2:
-        if st.button(
-            "📋 View All Purchase/Sales Orders",
-            use_container_width=True,
-            key="home_view_orders"
-        ):
-            st.session_state.page = "requests"
-            st.rerun()
+        if st.button("📋 View All Purchase/Sales Orders", use_container_width=True):
+            go_to("requests")
 
-    # — Summary (locked except for SUMMARY_ALLOWED) —
     with col3:
-        if st.session_state.user_name in SUMMARY_ALLOWED:
-            if st.button(
-                "📊 Summary",
-                use_container_width=True,
-                key="home_summary"
-            ):
-                st.session_state.page = "summary"
-                st.rerun()
+        if st.session_state.user_name in Config.SUMMARY_ALLOWED:
+            if st.button("📊 Summary", use_container_width=True):
+                go_to("summary")
         else:
-            st.button(
-                "🔒 Summary",
-                disabled=True,
-                use_container_width=True,
-                key="home_summary_locked"
-            )
-            st.caption("You don’t have access to this page.")
+            st.button("🔒 Summary", disabled=True, use_container_width=True)
+            st.caption("Admin access required")
 
-    # --- Backup & Restore (manual) ---
-    with st.expander("Backup & Restore"):
+    # Backup & Restore section
+    with st.expander("📦 Backup & Restore"):
         st.caption(f"Export folder: {EXPORT_DIR}")
-
-        # Download current snapshot (from in-memory state)
+        
         snap = {
             "requests": st.session_state.get("requests", []),
             "comments": st.session_state.get("comments", {})
         }
-        st.download_button(
-            "⬇️ Download snapshot (JSON)",
-            data=json.dumps(snap, ensure_ascii=False, indent=2),
-            file_name="HelpCenter_Snapshot.json",
-            mime="application/json",
-            key="backup_dl_btn"
-        )
-
-        # Upload + restore
-        uploaded = st.file_uploader(
-            "Restore from snapshot JSON",
-            type=["json"],
-            key="restore_uploader"
-        )
-        if uploaded and st.button("Restore now", key="restore_now_btn"):
-            try:
-                data = json.load(uploaded)
-                st.session_state.requests = data.get("requests", [])
-                st.session_state.comments = data.get("comments", {})
-                save_data()
-                st.success("Restored from uploaded snapshot ✅")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Restore failed: {e}")
-
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                "⬇️ Download Backup (JSON)",
+                data=json.dumps(snap, ensure_ascii=False, indent=2),
+                file_name=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
+        
+        with col2:
+            uploaded = st.file_uploader("Restore from backup", type=["json"])
+            if uploaded and st.button("🔄 Restore Now"):
+                try:
+                    data = json.load(uploaded)
+                    st.session_state.requests = data.get("requests", [])
+                    st.session_state.comments = data.get("comments", {})
+                    save_data()
+                    st.success("✅ Data restored successfully")
+                    logger.info(f"Data restored by {st.session_state.user_name}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Restore failed: {e}")
+                    logger.error(f"Restore failed: {e}")
 
 
 #####
