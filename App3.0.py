@@ -7,6 +7,62 @@ from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
+# =========================
+# 🔔 GLOBAL SAVE REMINDER
+# (put this once after login passes, before page routing)
+# =========================
+from datetime import datetime
+
+# Fire a rerun every 2 minutes even on static pages
+_ = st_autorefresh(interval=120_000, limit=None, key="__save_reminder_tick__")
+
+# State for throttling + optional snooze
+if "save_reminder_last_ts" not in st.session_state:
+    st.session_state.save_reminder_last_ts = 0.0
+if "save_reminder_snooze_until" not in st.session_state:
+    st.session_state.save_reminder_snooze_until = 0.0
+if "show_save_modal" not in st.session_state:
+    st.session_state.show_save_modal = False
+
+REMINDER_EVERY_SEC = 10  # 2 minutes
+
+def _maybe_show_save_reminder():
+    now = datetime.now().timestamp()
+    if now < st.session_state.save_reminder_snooze_until:
+        return
+    if now - st.session_state.save_reminder_last_ts >= REMINDER_EVERY_SEC:
+        st.session_state.save_reminder_last_ts = now
+        # ⚠️ Option A (default): small overlay toast
+        st.toast("💾 Don’t forget to save/export the JSON snapshot.", icon="💾")
+
+        # # Option B: popup modal instead of toast (uncomment these 2 lines)
+        # st.session_state.show_save_modal = True
+        # st.rerun()
+
+_maybe_show_save_reminder()
+
+# Optional: if you prefer a modal “overlay”, uncomment Option B above and keep this:
+@st.dialog("💾 Backup reminder", width="small")
+def _save_reminder_modal():
+    st.write("Don’t forget to save/export the JSON snapshot.")
+    c1, c2, c3 = st.columns([2,1,1])
+    if c1.button("Save snapshot now"):
+        try:
+            # uses your existing helper
+            export_snapshot_to_disk()
+            st.success("Snapshot saved to the exports folder.")
+        except Exception as e:
+            st.error(f"Save failed: {e}")
+    if c2.button("Snooze 30 min"):
+        st.session_state.save_reminder_snooze_until = datetime.now().timestamp() + 30*60
+        st.session_state.show_save_modal = False
+        st.rerun()
+    if c3.button("Dismiss"):
+        st.session_state.show_save_modal = False
+
+if st.session_state.show_save_modal:
+    _save_reminder_modal()
+
 
 # ----- AUTO EXPORT CONFIG (portable: Codespaces + Streamlit Cloud + Mac) -----
 from pathlib import Path
