@@ -490,15 +490,6 @@ if not st.session_state.authenticated:
     st.stop()
 
 
-# ---------- GLOBAL SNAPSHOT GUARD (all pages except login) ----------
-# Put this right AFTER the login block (the login block calls st.stop() if not auth)
-if st.session_state.authenticated:
-    # tiny heartbeat for pages that don't already auto-refresh
-    if st.session_state.page in ("home", "summary"):
-        _ = st_autorefresh(interval=10_000, limit=None, key=f"guard_heartbeat_{st.session_state.page}")
-    # show the overlay everywhere (except login) every 2 minutes
-    require_snapshot_download(every_seconds=5)
-
 
 # ─────────────────────────────────────────────────────────────────────
 # SNAPSHOT GUARD: force users to download the live JSON every N seconds
