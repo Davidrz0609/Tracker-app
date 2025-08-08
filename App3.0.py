@@ -550,7 +550,7 @@ def require_snapshot_download(every_seconds: int = 120, file_basename: str = "He
         if dl:
             st.session_state.snapshot_dl_clicked = True
 
-        c1, c2 = st.columns([2,1])
+        c1, c2 = st.columns([1,1])
         with c1:
             if last is None:
                 st.caption("First-time save required.")
