@@ -212,7 +212,7 @@ VALID_USERS = {
     "Tito": "123",
     "Luz": "123",
     "David": "123",
-    "John": "123",
+    "John": "Jn123*",
     "Sabrina": "123",
     "Bodega": "123", 
     "Carolina" : "123",   
