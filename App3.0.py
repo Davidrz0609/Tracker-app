@@ -11,7 +11,7 @@ from datetime import datetime, date
 import math as m
 import pandas as pd
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
+#from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
 # ────────────────────────────────────────────────────────────────────────────────
