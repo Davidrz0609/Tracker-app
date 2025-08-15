@@ -208,16 +208,16 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 # Example users (username: password)
 VALID_USERS = {
     "Andres": "GreenPhone13!",
-    "Marcela": "123",
+    "Marcela": "3539",
     "Tito": "123",
     "Luz": "123",
     "David": "Medellin1()",
     "John": "Jn123*",
-    "Sabrina": "123",
+    "Sabrina": "Null",
     "Bodega": "123", 
-    "Carolina" : "123",   
-    "Facturacion" : "123",
-    "Juan" : "123"
+    "Carolina" : "caroxoxo96",   
+    "Facturacion" : "#Lucia01",
+    "Juan" : "Emiliano219"
 }
 
 # Helper: Colored Status Badge
