@@ -207,7 +207,7 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 # Example users (username: password)
 VALID_USERS = {
-    "Andres": "123",
+    "Andres": "GreenPhone13!",
     "Marcela": "123",
     "Tito": "123",
     "Luz": "123",
@@ -217,6 +217,7 @@ VALID_USERS = {
     "Bodega": "123", 
     "Carolina" : "123",   
     "Facturacion" : "123"
+    "Juan" : "123"
 }
 
 # Helper: Colored Status Badge
@@ -577,7 +578,7 @@ if st.session_state.authenticated:
 # ─────────────────────────────────────────────────────────────────────
 # ---------------- HOME PAGE (with locked Summary & Requerimientos) ----
 # ─────────────────────────────────────────────────────────────────────
-SUMMARY_ALLOWED = {"Andres", "David", "Tito", "Luz"}
+SUMMARY_ALLOWED = {"Andres", "David","Juan", "Tito", "Luz"}
 REQS_DENIED     = {"Bodega"}
 
 if st.session_state.page == "home":
@@ -852,10 +853,10 @@ if st.session_state.page == "requests":
     user = st.session_state.user_name
 
     # ─── ACCESS GROUPS ─────────────────────────────────────────────
-    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina"}
-    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David"}          # can open PO dialog
-    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David"}           # can see price columns
-    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David"} # can see POs & SOs
+    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina","Juan"}
+    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David","Juan"}          # can open PO dialog
+    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David","Juan"}           # can see price columns
+    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David","Juan"} # can see POs & SOs
 
     # ─── STATE FOR OVERLAYS ───────────────────────────────────────
     if "show_new_po" not in st.session_state:
@@ -886,7 +887,7 @@ if st.session_state.page == "requests":
         with c1:
             po_number    = st.text_input("Purchase Order#", placeholder="e.g. 12345")
             status_po    = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"])
-            encargado_po = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"])
+            encargado_po = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"])
         with c2:
             order_number = st.text_input("Tracking# (optional)", placeholder="e.g. TRK-45678")
             proveedor    = st.text_input("Proveedor", placeholder="e.g. Amazon")
@@ -988,7 +989,7 @@ if st.session_state.page == "requests":
         with d1:
             order_number_so = st.text_input("Ref# (optional)", placeholder="e.g. SO-2025-001", key="so_ref")
             status_so       = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"], key="so_status")
-            encargado_so    = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"], key="so_encargado")
+            encargado_so    = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"], key="so_encargado")
         with d2:
             tracking_so = st.text_input("Tracking# (optional)", placeholder="e.g. TRK45678", key="so_track")
             cliente     = st.text_input("Cliente", placeholder="e.g. TechCorp LLC", key="so_cliente")
@@ -1408,8 +1409,8 @@ if st.session_state.page == "detail":
         encargado_val = request.get("Encargado", " ")
         encargado = st.selectbox(
             "Encargado",
-            [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"],
-            index=[" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"].index(encargado_val),
+            [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"],
+            index=[" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"].index(encargado_val),
             key="detail_Encargado"
         )
         if encargado != encargado_val:
@@ -1665,8 +1666,8 @@ elif st.session_state.page == "req_list":
             })
 
         col_v, col_c, col_dt, col_st = st.columns([2,2,2,2])
-        vendedores  = [" ", "John","Andres","Luz","Tito","Marcela","Carolina","Sabrina"]
-        compradores = [" ", "David","Andres","Thea","Tito","Luz"]
+        vendedores  = [" ", "John","Andres","Luz","Tito","Marcela","Carolina","Sabrina","Juan"]
+        compradores = [" ", "David","Andres","Thea","Tito","Luz","Juan"]
         sel_v = col_v.selectbox("Vendedor",   vendedores,   key="req_vendedor")
         sel_c = col_c.selectbox("Comprador",  compradores,  key="req_comprador")
         dt    = col_dt.date_input("Date", value=date.today(), key="req_fecha")
@@ -1950,8 +1951,8 @@ elif st.session_state.page == "req_detail":
         updated["Items"] = new_items
 
     # ─── VENDEDOR & COMPRADOR ──────────────────────────────────────
-    vendedores = [" ", "John", "Andres", "Luz", "Tito", "Marcela", "Carolina", "Sabrina"]
-    compradores = [" ", "David", "Andres", "Thea", "Tito", "Luz"]
+    vendedores = [" ", "John", "Andres", "Luz", "Tito", "Marcela", "Carolina", "Sabrina","Juan"]
+    compradores = [" ", "David", "Andres", "Thea", "Tito", "Luz","Juan"]
     cv, cc = st.sidebar.columns(2)
     vend0 = request.get("Vendedor Encargado", " ")
     comp0 = request.get("Comprador Encargado", " ")
@@ -2061,7 +2062,7 @@ elif st.session_state.page == "req_detail":
 
 
     # ─── Quiénes pueden crear PO (igual que home) ───────────────
-    PURCHASE_ALLOWED = {"Tito", "Andres", "Luz", "David"}
+    PURCHASE_ALLOWED = {"Tito", "Andres", "Luz", "David","Juan"}
 
     # ─── PURCHASE ORDER OVERLAY ───────────────────────────────────
     @st.dialog("💲 New Purchase Order", width="large")
@@ -2088,7 +2089,7 @@ elif st.session_state.page == "req_detail":
         with c1:
             po_number    = st.text_input("Purchase Order#", value="", placeholder="e.g. 12345")
             status_po    = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"])
-            encargado_po = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"])
+            encargado_po = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"])
         with c2:
             order_number = st.text_input("Tracking# (optional)", value="", placeholder="e.g. TRK-45678")
             proveedor     = st.text_input("Proveedor", value="", placeholder="e.g. Amazon")
@@ -2197,7 +2198,7 @@ elif st.session_state.page == "req_detail":
         with d1:
             order_number_so = st.text_input("Ref# (optional)", value="", placeholder="e.g. SO-2025-001")
             status_so       = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"])
-            encargado_so    = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea"])
+            encargado_so    = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"])
         with d2:
             tracking_so = st.text_input("Tracking# (optional)", value="", placeholder="e.g. TRK45678")
             cliente     = st.text_input("Cliente", value="", placeholder="e.g. TechCorp LLC")
