@@ -214,9 +214,9 @@ VALID_USERS = {
     "David": "Medellin1()",
     "John": "Jn123*",
     "Sabrina": "Null",
-    "Bodega": "123", 
+    "Bodega": "bodega", 
     "Carolina" : "caroxoxo96",   
-    "Facturacion" : "#Lucia01",
+    "Facturacion" : "$Lucia01",
     "Juan" : "Emiliano219"
 }
 
