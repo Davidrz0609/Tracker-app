@@ -216,7 +216,7 @@ VALID_USERS = {
     "Sabrina": "123",
     "Bodega": "123", 
     "Carolina" : "123",   
-    "Facturacion" : "123"
+    "Facturacion" : "123",
     "Juan" : "123"
 }
 
