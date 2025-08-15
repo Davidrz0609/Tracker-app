@@ -853,7 +853,7 @@ if st.session_state.page == "requests":
     user = st.session_state.user_name
 
     # ─── ACCESS GROUPS ─────────────────────────────────────────────
-    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina","Juan"}
+    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina","Juan", "Marcela"}
     PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David","Juan"}          # can open PO dialog
     PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David","Juan"}           # can see price columns
     BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David","Juan"} # can see POs & SOs
