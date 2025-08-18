@@ -216,7 +216,7 @@ VALID_USERS = {
     "Sabrina": "Null",
     "Bodega": "bodega", 
     "Carolina" : "caroxoxo96",   
-    "Facturacion" : "$Lucia01",
+    "Maye" : "$Lucia01",
     "Juan" : "Emiliano219"
 }
 
@@ -853,10 +853,10 @@ if st.session_state.page == "requests":
     user = st.session_state.user_name
 
     # ─── ACCESS GROUPS ─────────────────────────────────────────────
-    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina","Juan", "Marcela"}
-    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David","Juan"}          # can open PO dialog
-    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David","Juan"}           # can see price columns
-    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David","Juan"} # can see POs & SOs
+    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina","Juan", "Marcela","Maye"}
+    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David","Juan","Maye"}          # can open PO dialog
+    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David","Juan","Maye"}           # can see price columns
+    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David","Juan","Maye"} # can see POs & SOs
 
     # ─── STATE FOR OVERLAYS ───────────────────────────────────────
     if "show_new_po" not in st.session_state:
@@ -2062,7 +2062,7 @@ elif st.session_state.page == "req_detail":
 
 
     # ─── Quiénes pueden crear PO (igual que home) ───────────────
-    PURCHASE_ALLOWED = {"Tito", "Andres", "Luz", "David","Juan"}
+    PURCHASE_ALLOWED = {"Tito", "Andres", "Luz", "David","Juan","Maye"}
 
     # ─── PURCHASE ORDER OVERLAY ───────────────────────────────────
     @st.dialog("💲 New Purchase Order", width="large")
