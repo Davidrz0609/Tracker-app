@@ -1071,7 +1071,7 @@ if st.session_state.page == "requests":
     # ─── HEADER + AUTO-REFRESH + LOAD ─────────────────────────────
     st.markdown("# 📋 All Purchase/Sales Orders")
     st.markdown("---")
-    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
+    _ = st_autorefresh(interval=10000, limit=None, key="requests_refresh")
     load_data()
 
     # Create/refresh snapshot on page open; show path + quick download
