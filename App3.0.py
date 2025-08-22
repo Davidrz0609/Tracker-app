@@ -850,13 +850,82 @@ elif st.session_state.page == "summary":
 # go_to(page), format_status_badge(status), export_snapshot_to_disk()
 
 if st.session_state.page == "requests":
+    import json
+    from datetime import datetime, date
+
     user = st.session_state.user_name
 
     # ─── ACCESS GROUPS ─────────────────────────────────────────────
     SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina", "Juan", "Marcela", "Maye"}
-    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David", "Juan", "Maye"}          # can open PO dialog
-    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David", "Juan", "Maye"}          # can see price columns
-    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David", "Juan", "Maye"}# can see POs & SOs
+    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David", "Juan", "Maye"}
+    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David", "Juan", "Maye"}
+    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David", "Juan", "Maye"}
+
+    # ─── STATUS NORMALIZATION & ORDER ─────────────────────────────
+    # Canonical labels (UPPERCASE) we’ll use everywhere on this page
+    CANON_STATUSES = [
+        "IMPRIMIR", "IMPRESA", "SEPARAR Y CONFIRMAR", "RECIBIDO / PROCESANDO",
+        "PENDIENTE", "SEPARADO - PENDIENTE", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"
+    ]
+
+    # Order you asked for: READY first, then a sensible progression
+    STATUS_ORDER = [
+        "READY",
+        "IN TRANSIT",
+        "RECIBIDO / PROCESANDO",
+        "SEPARAR Y CONFIRMAR",
+        "SEPARADO - PENDIENTE",
+        "PENDIENTE",
+        "IMPRESA",
+        "IMPRIMIR",
+        "COMPLETE",
+        "CANCELLED",
+    ]
+    STATUS_RANK = {s: i for i, s in enumerate(STATUS_ORDER)}
+
+    def normalize_status(s: str) -> str:
+        """
+        Normalize any status (any case / extra spaces) to a canonical UPPER label
+        so filtering & sorting work regardless of how it was saved.
+        """
+        x = (s or "").strip().upper()
+        # relax spaces and dashes
+        x = " ".join(x.split())  # collapse whitespace
+        # common variants → canonical
+        aliases = {
+            "IMPRIMIR": "IMPRIMIR",
+            "IMPRESA": "IMPRESA",
+            "SEPARAR Y CONFIRMAR": "SEPARAR Y CONFIRMAR",
+            "SEPARARYCONFIRMAR": "SEPARAR Y CONFIRMAR",
+
+            "RECIBIDO/PROCESANDO": "RECIBIDO / PROCESANDO",
+            "RECIBIDO / PROCESANDO": "RECIBIDO / PROCESANDO",
+            "RECIBIDO-PROCESANDO": "RECIBIDO / PROCESANDO",
+
+            "PENDIENTE": "PENDIENTE",
+
+            "SEPARADO - PENDIENTE": "SEPARADO - PENDIENTE",
+            "SEPARADO PENDIENTE": "SEPARADO - PENDIENTE",
+
+            "COMPLETE": "COMPLETE",
+            "COMPLETED": "COMPLETE",
+
+            "READY": "READY",
+
+            "CANCELLED": "CANCELLED",
+            "CANCELED": "CANCELLED",
+
+            "IN TRANSIT": "IN TRANSIT",
+            "EN TRANSITO": "IN TRANSIT",
+            "IN-TRANSIT": "IN TRANSIT",
+        }
+        # direct hit
+        if x in aliases:
+            return aliases[x]
+        # try without punctuation variations
+        x2 = x.replace("-", " ").replace("/", " / ")
+        x2 = " ".join(x2.split())
+        return aliases.get(x2, x)  # fallback to x (already upper)
 
     # ─── STATE FOR OVERLAYS ───────────────────────────────────────
     st.session_state.setdefault("show_new_po", False)
@@ -1085,28 +1154,23 @@ if st.session_state.page == "requests":
     with col1:
         search_term = st.text_input("Search", placeholder="Search requests…")
     with col2:
-        status_options = [
-            "All",
-            "IMPRIMIR","IMPRESA","SEPARAR Y CONFIRMAR","RECIBIDO / PROCESANDO","PENDIENTE","SEPARADO - PENDIENTE",
-            "COMPLETE","READY","CANCELLED","IN TRANSIT"
-        ]
+        status_options = ["All"] + STATUS_ORDER  # show in our order
         status_filter = st.selectbox("Status", status_options)
     with col3:
         type_filter = st.selectbox("Request type", ["All","💲 Purchase","🛒 Sales"])
 
     # ─── ACCESS SCOPE ─────────────────────────────────────────────
     all_requests = st.session_state.requests
-    # Keep (global_index, request) pairs so keys remain unique & stable
     if user in BODEGA:
         base_requests = list(enumerate(all_requests))
     else:
         base_requests = [(i, r) for i, r in enumerate(all_requests) if r.get("Type") == "🛒"]
 
-    # ─── APPLY FILTERS ────────────────────────────────────────────
+    # ─── APPLY FILTERS (case-insensitive status) ──────────────────
     def _matches_status(r):
         if status_filter == "All":
             return True
-        return (r.get("Status","").upper() == status_filter)
+        return normalize_status(r.get("Status", "")) == status_filter
 
     def _matches_type(r):
         if type_filter == "All":
@@ -1121,13 +1185,31 @@ if st.session_state.page == "requests":
         and _matches_type(r)
     ]
 
+    # ─── SORT: READY first, then by ETA (today first), then others by our STATUS_ORDER and ETA ───
+    today = date.today()
+
     def parse_eta(req_dict):
         try:
             return datetime.strptime(req_dict.get("ETA Date",""), "%Y-%m-%d").date()
         except Exception:
-            return date.max
+            return None  # treated as far future
 
-    filtered_requests = sorted(filtered_requests, key=lambda pair: parse_eta(pair[1]))
+    def sort_key(pair):
+        _, r = pair
+        st_norm = normalize_status(r.get("Status",""))
+        eta = parse_eta(r)
+        # Group by status rank (READY = 0, etc.)
+        rank = STATUS_RANK.get(st_norm, 999)
+        # Within a status: today's ETAs first, then future, then missing
+        if eta is None:
+            eta_bucket = 2
+            eta_value = date.max
+        else:
+            eta_bucket = 0 if eta == today else 1
+            eta_value = eta
+        return (rank, eta_bucket, eta_value)
+
+    filtered_requests = sorted(filtered_requests, key=sort_key)
 
     # ─── EXPORT + NEW BUTTONS ─────────────────────────────────────
     col_exp, col_po, col_so = st.columns([3,1,1])
@@ -1157,7 +1239,8 @@ if st.session_state.page == "requests":
                 "Ref#": r.get("Invoice","") if is_po else r.get("Order#",""),
                 "Description": _join(r.get("Description", [])),
                 "Qty": _join(r.get("Quantity", [])),
-                "Status": r.get("Status",""),
+                # export normalized status so CSV filters work cleanly
+                "Status": normalize_status(r.get("Status","")),
                 "Ordered Date": r.get("Date",""),
                 "ETA Date": r.get("ETA Date",""),
                 "Shipping Method": r.get("Shipping Method",""),
@@ -1209,9 +1292,7 @@ if st.session_state.page == "requests":
         </style>
         """, unsafe_allow_html=True)
 
-        today = date.today()
-
-        def render_table(pairs_list):  # list of (global_idx, req_dict)
+        def render_table(pairs_list):
             if user in PRICE_ALLOWED:
                 widths = [1.5,1,2,5,2,2,2,2,2,2,2,2]
                 headers = ["","Type","Ref#","Description","Qty","Cost/Sales Price","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
@@ -1223,28 +1304,22 @@ if st.session_state.page == "requests":
             for c,h in zip(cols_hdr, headers):
                 c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
 
+            today_local = date.today()
+
             for global_idx, req in pairs_list:
                 cols = st.columns(widths)
 
-                # comments keyed by global index
                 comments_list = st.session_state.comments.get(str(global_idx), [])
                 for c in comments_list:
                     c.setdefault("read_by", [])
-                unread_cnt = sum(
-                    1 for c in comments_list
-                    if user not in c["read_by"] and c.get("author") != user
-                )
-                cols[0].markdown(
-                    f"<span class='unread-badge'>💬{unread_cnt}</span>" if unread_cnt>0 else "",
-                    unsafe_allow_html=True
-                )
+                unread_cnt = sum(1 for c in comments_list if user not in c["read_by"] and c.get("author") != user)
+                cols[0].markdown(f"<span class='unread-badge'>💬{unread_cnt}</span>" if unread_cnt>0 else "", unsafe_allow_html=True)
 
                 cols[1].markdown(f"<span class='type-icon'>{req.get('Type','')}</span>", unsafe_allow_html=True)
                 cols[2].write(req.get("Invoice","") if req.get("Type")=="💲" else req.get("Order#",""))
 
                 desc = req.get("Description", [])
                 cols[3].write(", ".join(desc) if isinstance(desc, list) else desc)
-
                 qty = req.get("Quantity", [])
                 cols[4].write(", ".join(map(str, qty)) if isinstance(qty, list) else qty)
 
@@ -1261,19 +1336,20 @@ if st.session_state.page == "requests":
                 else:
                     status_idx = 5
 
-                stt = req.get("Status","").upper()
-                eta = req.get("ETA Date","")
+                # Use normalized status for badge & overdue indicator
+                stt_norm = normalize_status(req.get("Status",""))
+                eta_str  = req.get("ETA Date","")
                 try:
-                    ed = datetime.strptime(eta, "%Y-%m-%d").date()
+                    ed = datetime.strptime(eta_str, "%Y-%m-%d").date()
                 except:
                     ed = None
-                badge_html = format_status_badge(stt)
-                if ed and ed < today and stt not in ("READY","CANCELLED"):
+                badge_html = format_status_badge(stt_norm)
+                if ed and ed < today_local and stt_norm not in ("READY","CANCELLED","COMPLETE"):
                     badge_html += "<abbr title='Overdue'><span class='overdue-icon'>⚠️</span></abbr>"
                 cols[status_idx].markdown(badge_html, unsafe_allow_html=True)
 
                 cols[status_idx+1].write(req.get("Date",""))
-                cols[status_idx+2].write(eta)
+                cols[status_idx+2].write(eta_str)
                 cols[status_idx+3].write(req.get("Shipping Method",""))
                 cols[status_idx+4].write(req.get("Encargado",""))
 
@@ -1311,6 +1387,7 @@ if st.session_state.page == "requests":
     # ─── BACK TO HOME ─────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 ####
 import streamlit as st
