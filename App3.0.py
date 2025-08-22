@@ -1213,10 +1213,10 @@ if st.session_state.page == "requests":
 
         def render_table(pairs_list):  # list of (global_idx, req_dict)
             if user in PRICE_ALLOWED:
-                widths = [1,1,2,5,2,2,2,2,2,2,1,1]
+                widths = [1,1,2,5,2,2,2,2,2,2,2,2]
                 headers = ["","Type","Ref#","Description","Qty","Cost/Sales Price","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
             else:
-                widths = [1,1,2,5,2,2,2,2,2,1,1]
+                widths = [1,1,2,5,2,2,2,2,2,2,2]
                 headers = ["","Type","Ref#","Description","Qty","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
 
             cols_hdr = st.columns(widths)
