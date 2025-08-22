@@ -1393,13 +1393,23 @@ if st.session_state.page == "detail":
             "nivel 3 dl": "Nivel 3 Delivery",
         }
         x = (s or "").strip().lower()
-        # also accept loose variants like "nivel 2 pickup" or "nivel-3 delivery"
         if x not in mapping:
             y = re.sub(r"[-_]", " ", x)
             y = re.sub(r"\s+", " ", y)
             y = y.replace("pickup", "pu").replace("pick up", "pu").replace("delivery", "dl")
             x = y
         return mapping.get(x, " ")
+
+    def _ensure_item_lists(req: dict, price_key: str):
+        """Pad Description/Quantity/Price lists to same length."""
+        descs = list(req.get("Description", []))
+        qtys  = list(req.get("Quantity", []))
+        prices = list(req.get(price_key, []))
+        L = max(len(descs), len(qtys), len(prices), 0)
+        def pad(lst, fill):
+            return list(lst) + [fill]*(L - len(lst))
+        # keep types as present (strings); conversion happens on save
+        return pad(descs, ""), pad(qtys, ""), pad(prices, "")
 
     # ── Auto-refresh comments every second ──────────────────────────
     _ = st_autorefresh(
@@ -1483,34 +1493,75 @@ if st.session_state.page == "detail":
 
         # ─── 🧾 Items (Description / Qty / Price) ─────────────────
         st.markdown("### 🧾 Items")
-        descs = request.get("Description", [])
-        qtys  = request.get("Quantity", [])
+
         price_key = "Cost" if is_purchase else "Sale Price"
-        prices = request.get(price_key, [])
+        # keep lists in sync
+        descs, qtys, prices = _ensure_item_lists(request, price_key)
 
-        new_descs, new_qtys, new_prices = [], [], []
-        for i, (d, q, p) in enumerate(zip(descs, qtys, prices)):
-            c1, c2, c3 = st.columns([3, 1, 1])
-            new_d = c1.text_input(f"Description #{i+1}", d, key=f"detail_desc_{i}")
-            new_q = c2.text_input(f"Qty #{i+1}", q, key=f"detail_qty_{i}")
+        # ➕ Add item button (appends a blank row, persists immediately)
+        if st.button("➕ Add Item", key=f"add_item_{index}", use_container_width=True):
+            descs.append("")
+            qtys.append("")
+            prices.append("" if not hide_prices else "")
+            request["Description"] = descs
+            request["Quantity"] = qtys
+            request[price_key] = prices
+            st.session_state.requests[index] = request
+            save_data()
+            st.rerun()
+
+        # render rows (with optional per-row remove)
+        rows_to_delete = []
+        for i in range(len(descs)):
+            c1, c2, c3, c4 = st.columns([3, 1, 1, 0.4])
+            new_d = c1.text_input(f"Description #{i+1}", descs[i], key=f"detail_desc_{i}")
+            new_q = c2.text_input(f"Qty #{i+1}", qtys[i], key=f"detail_qty_{i}")
             if hide_prices:
-                c3.markdown("**—**"); new_p = p
+                c3.markdown("**—**"); new_p = prices[i]
             else:
-                new_p = c3.text_input(f"{price_key} #{i+1}", p, key=f"detail_price_{i}")
-            new_descs.append(new_d); new_qtys.append(new_q); new_prices.append(new_p)
+                new_p = c3.text_input(f"{price_key} #{i+1}", prices[i], key=f"detail_price_{i}")
+            # tiny delete button
+            with c4:
+                if st.button("🗑️", key=f"del_row_{i}_{index}", help="Remove this item"):
+                    rows_to_delete.append(i)
 
-        if new_descs != descs:
-            updated_fields["Description"] = new_descs
-        if new_qtys != qtys:
+            descs[i] = new_d
+            qtys[i]  = new_q
+            prices[i]= new_p
+
+        # apply deletes (from last to first to keep indices valid)
+        if rows_to_delete:
+            for ri in sorted(rows_to_delete, reverse=True):
+                if 0 <= ri < len(descs):
+                    descs.pop(ri)
+                    qtys.pop(ri)
+                    prices.pop(ri)
+            request["Description"] = descs
+            request["Quantity"] = qtys
+            request[price_key] = prices
+            st.session_state.requests[index] = request
+            save_data()
+            st.rerun()
+
+        # collect updated fields (convert types when possible)
+        orig_descs = request.get("Description", [])
+        orig_qtys  = request.get("Quantity", [])
+        orig_prices= request.get(price_key, [])
+
+        if descs != orig_descs:
+            updated_fields["Description"] = descs
+
+        if qtys != orig_qtys:
             try:
-                updated_fields["Quantity"] = [int(x) for x in new_qtys]
+                updated_fields["Quantity"] = [int(x) if str(x).strip() != "" else 0 for x in qtys]
             except:
-                updated_fields["Quantity"] = new_qtys
-        if new_prices != prices:
+                updated_fields["Quantity"] = qtys
+
+        if not hide_prices and prices != orig_prices:
             try:
-                updated_fields[price_key] = [float(x) for x in new_prices]
+                updated_fields[price_key] = [float(x) if str(x).strip() != "" else 0.0 for x in prices]
             except:
-                updated_fields[price_key] = new_prices
+                updated_fields[price_key] = prices
 
         # ─── 🚚 Shipping Information ───────────────────────────────
         st.markdown("### 🚚 Shipping Information")
@@ -1528,7 +1579,6 @@ if st.session_state.page == "detail":
                      "Nivel 2 Pick up", "Nivel 2 Delivery",
                      "Nivel 3 Pick up", "Nivel 3 Delivery"]
 
-        # normalize only Shipping Method (handles 'Nivel 1 PU' / 'Nivel 2 DL', etc.)
         raw_ship_val = request.get("Shipping Method", " ")
         ship_val = normalize_shipping(raw_ship_val)
 
