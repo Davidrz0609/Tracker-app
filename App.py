@@ -1192,12 +1192,20 @@ elif st.session_state.page == "detail":
 # ----------------------- REQS LIST + DETAIL --------------------------
 # ─────────────────────────────────────────────────────────────────────
 elif st.session_state.page == "req_list":
-    # persist flag & one-shot close
+    # persist flags & one-shot close for New Requirement
     st.session_state.setdefault("show_new_req", False)
+    st.session_state.setdefault("show_new_po",  False)  # ADDED: PO overlay flag
+    st.session_state.setdefault("show_new_so",  False)  # ADDED: SO overlay flag
+
     if st.session_state.pop("req_dialog_just_closed", False):
         st.session_state.show_new_req = False
         st.toast("✅ Requerimiento enviado.")
 
+    # Local permission sets (match other pages)
+    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina", "Juan", "Marcela", "Maye"}
+    PURCHASE_ALLOWED  = {"Tito", "Andres", "Luz", "David", "Juan", "Maye"}
+
+    # ─── OVERLAY: NEW REQ FORM ─────────────────────────────────────
     @st.dialog(" 📄 Nuevo Requerimiento", width="large")
     def new_req_dialog():
         st.markdown("""
@@ -1251,6 +1259,163 @@ elif st.session_state.page == "req_list":
             if st.button("❌ Cancel", key="req_cancel", use_container_width=True):
                 st.session_state.show_new_req = False; st.rerun()
 
+    # ─── OVERLAY: NEW PURCHASE ORDER (req_list) ────────────────────
+    @st.dialog("💲 New Purchase Order", width="large")
+    def rl_purchase_order_dialog():
+        st.session_state.setdefault("rl_purchase_item_rows", 1)
+        st.session_state.rl_purchase_item_rows = max(1, st.session_state.rl_purchase_item_rows)
+
+        st.markdown("""
+        <style>.stTextInput>div>div>input,.stSelectbox>div,.stDateInput>div{
+          background:#f7f9fc!important;border-radius:12px!important;padding:0.4rem!important;border:1px solid #dfe6ec!important;}
+        </style>""", unsafe_allow_html=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            po_number    = st.text_input("Purchase Order#", placeholder="e.g. 12345", key="rl_po_number")
+            status_po    = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"], key="rl_po_status")
+            encargado_po = st.selectbox("Encargado *", [" ", "Andres","Tito","Luz","David","Marcela","John","Carolina","Thea","Juan"], key="rl_po_encargado")
+        with c2:
+            order_number = st.text_input("Tracking# (optional)", placeholder="e.g. TRK-45678", key="rl_po_track")
+            proveedor    = st.text_input("Proveedor", placeholder="e.g. Amazon", key="rl_po_vendor")
+            pago         = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"], key="rl_po_pago")
+
+        st.markdown("### 🧾 Items to Order")
+        descs, qtys, costs = [], [], []
+        for i in range(st.session_state.rl_purchase_item_rows):
+            a, b, c = st.columns([3,2,1])
+            descs.append(a.text_input(f"Description #{i+1}", key=f"rl_po_desc_{i}"))
+            qtys.append(b.text_input(f"Quantity #{i+1}", key=f"rl_po_qty_{i}"))
+            costs.append(c.text_input(f"Cost #{i+1}", placeholder="e.g. 1500", key=f"rl_po_cost_{i}"))
+
+        ca2, cb2 = st.columns([1,1])
+        with ca2:
+            if st.button("➕ Add another item", key="rl_add_purchase"):
+                st.session_state.rl_purchase_item_rows += 1; st.rerun()
+        with cb2:
+            if st.session_state.rl_purchase_item_rows > 1 and st.button("❌ Remove last item", key="rl_remove_purchase"):
+                st.session_state.rl_purchase_item_rows -= 1; st.rerun()
+
+        st.markdown("### 🚚 Shipping Information")
+        c3, c4 = st.columns(2)
+        with c3: order_date = st.date_input("Order Date", value=date.today(), key="rl_po_order_date")
+        with c4: eta_date   = st.date_input("ETA Date", key="rl_po_eta")
+        shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"], key="rl_po_ship")
+
+        col_submit, col_cancel = st.columns([2,1])
+        with col_submit:
+            if st.button("✅ Submit Purchase Request", key="rl_submit_po", use_container_width=True):
+                clean_descs = [d.strip() for d in descs if isinstance(d, str) and d.strip()]
+                clean_qtys, clean_costs = [], []
+                for q in qtys:
+                    q = (q or "").strip()
+                    if q:
+                        try: clean_qtys.append(int(float(q)))
+                        except: clean_qtys.append(q)
+                for c in costs:
+                    c = (c or "").strip()
+                    if c:
+                        try: clean_costs.append(float(c))
+                        except: clean_costs.append(c)
+                if not clean_descs or not clean_qtys or not clean_costs or status_po == " " or encargado_po == " ":
+                    st.error("❗ Complete required fields.")
+                else:
+                    add_request({
+                        "Type":"💲","Invoice": po_number,"Order#": order_number,"Date": str(order_date),
+                        "Status": status_po,"Shipping Method": shipping_method,"ETA Date": str(eta_date),
+                        "Description": clean_descs,"Quantity": clean_qtys,"Cost": clean_costs,
+                        "Proveedor": proveedor,"Encargado": encargado_po,"Pago": pago
+                    })
+                    try: export_snapshot_to_disk()
+                    except Exception as e: st.warning(f"Auto-export failed: {e}")
+                    st.success("✅ Purchase request submitted.")
+                    st.session_state.rl_purchase_item_rows = 1
+                    st.session_state.show_new_po = False
+                    st.rerun()
+        with col_cancel:
+            if st.button("❌ Cancel", key="rl_cancel_po", use_container_width=True):
+                st.session_state.show_new_po = False; st.rerun()
+
+    # ─── OVERLAY: NEW SALES ORDER (req_list) ───────────────────────
+    @st.dialog("🛒 New Sales Order", width="large")
+    def rl_sales_order_dialog():
+        st.session_state.setdefault("rl_invoice_item_rows", 1)
+        st.session_state.rl_invoice_item_rows = max(1, st.session_state.rl_invoice_item_rows)
+
+        st.markdown("""
+        <style>.stTextInput>div>div>input,.stSelectbox>div,.stDateInput>div{
+          background:#f7f9fc!important;border-radius:8px!important;padding:0.4rem!important;border:1px solid #dfe6ec!important;}
+        </style>""", unsafe_allow_html=True)
+
+        d1, d2 = st.columns(2)
+        with d1:
+            order_number_so = st.text_input("Ref# (optional)", placeholder="e.g. SO-2025-001", key="rl_so_ref")
+            status_so       = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"], key="rl_so_status")
+            encargado_so    = st.selectbox("Encargado *", [" ", "Andres","Tito","Luz","David","Marcela","John","Carolina","Thea","Juan"], key="rl_so_encargado")
+        with d2:
+            tracking_so = st.text_input("Tracking# (optional)", placeholder="e.g. TRK45678", key="rl_so_track")
+            cliente     = st.text_input("Cliente", placeholder="e.g. TechCorp LLC", key="rl_so_cliente")
+            pago_so     = st.selectbox("Método de Pago", [" ", "Wire", "Cheque", "Credito", "Efectivo"], key="rl_so_pago")
+
+        st.markdown("### 🧾 Items to Invoice")
+        ds, qs, prices = [], [], []
+        for i in range(st.session_state.rl_invoice_item_rows):
+            sa, sb, sc = st.columns([3, 2, 1])
+            ds.append(sa.text_input(f"Description #{i+1}", key=f"rl_so_desc_{i}"))
+            qs.append(sb.text_input(f"Quantity #{i+1}", key=f"rl_so_qty_{i}"))
+            prices.append(sc.text_input(f"Sale Price #{i+1}", placeholder="e.g. 2000", key=f"rl_so_price_{i}"))
+
+        sa2, sb2 = st.columns([1,1])
+        with sa2:
+            if st.button("➕ Add another item", key="rl_add_invoice"):
+                st.session_state.rl_invoice_item_rows += 1; st.rerun()
+        with sb2:
+            if st.session_state.rl_invoice_item_rows > 1 and st.button("❌ Remove last item", key="rl_remove_invoice"):
+                st.session_state.rl_invoice_item_rows -= 1; st.rerun()
+
+        st.markdown("### 🚚 Shipping Information")
+        s1, s2 = st.columns(2)
+        with s1: so_date = st.date_input("Order Date", value=date.today(), key="rl_so_date")
+        with s2: so_eta  = st.date_input("ETA Date", key="rl_so_eta")
+        so_ship = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"], key="rl_so_ship")
+
+        cs1, cs2 = st.columns([2,1])
+        with cs1:
+            if st.button("✅ Submit Sales Order", key="rl_submit_so", use_container_width=True):
+                clean_ds, clean_qs, clean_prices = [], [], []
+                for d in ds:
+                    d = (d or "").strip()
+                    if d: clean_ds.append(d)
+                for q in qs:
+                    q = (q or "").strip()
+                    if q:
+                        try: clean_qs.append(int(float(q)))
+                        except: clean_qs.append(q)
+                for p in prices:
+                    p = (p or "").strip()
+                    if p:
+                        try: clean_prices.append(float(p))
+                        except: clean_prices.append(p)
+                if not clean_ds or not clean_qs or not clean_prices or status_so == " " or encargado_so == " ":
+                    st.error("❗ Complete required fields.")
+                else:
+                    add_request({
+                        "Type":"🛒","Order#": order_number_so,"Invoice": tracking_so,"Date": str(so_date),
+                        "Status": status_so,"Shipping Method": so_ship,"ETA Date": str(so_eta),
+                        "Description": clean_ds,"Quantity": clean_qs,"Sale Price": clean_prices,
+                        "Cliente": cliente,"Encargado": encargado_so,"Pago": pago_so
+                    })
+                    try: export_snapshot_to_disk()
+                    except Exception as e: st.warning(f"Auto-export failed: {e}")
+                    st.success("✅ Sales order submitted.")
+                    st.session_state.rl_invoice_item_rows = 1
+                    st.session_state.show_new_so = False
+                    st.rerun()
+        with cs2:
+            if st.button("❌ Cancel", key="rl_cancel_so", use_container_width=True):
+                st.session_state.show_new_so = False; st.rerun()
+
+    # ─── MAIN LIST UI ────────────────────────────────────────────────
     st.markdown("# 📝 Requerimientos Clientes")
     st.markdown("<hr>", unsafe_allow_html=True)
     _ = st_autorefresh(interval=1000, limit=None, key="req_list_refresh")
@@ -1295,8 +1460,10 @@ elif st.session_state.page == "req_list":
         if st.button("📋 All Purchase/Sales Orders", key="nav_all_req", use_container_width=True):
             st.session_state.page = "requests"; st.rerun()
 
+    # Open 'New Requirement' dialog
     if st.session_state.show_new_req: new_req_dialog()
 
+    # Table render
     if reqs:
         st.markdown("""
         <style>
@@ -1359,176 +1526,30 @@ elif st.session_state.page == "req_list":
     else:
         st.info("No hay requerimientos que coincidan.")
 
+    # ─── Quick Actions (PO/SO overlays from req_list) ─────────────
+    st.markdown("---")
+    st.markdown("### 📝 Quick Actions")
+    qa1, qa2, qa3 = st.columns(3)
+    with qa1:
+        if st.button("📋 All Purchase/Sales Orders", key="rl_nav_orders", use_container_width=True):
+            st.session_state.page = "requests"; st.rerun()
+    with qa2:
+        if st.session_state.user_name in PURCHASE_ALLOWED:
+            if st.button("💲 New Purchase Order", key="rl_new_po_btn", use_container_width=True):
+                st.session_state.show_new_po = True; st.rerun()
+        else:
+            st.button("🔒 New Purchase Order", disabled=True, use_container_width=True)
+            st.caption("No tienes permiso para crear órdenes de compra.")
+    with qa3:
+        if st.session_state.user_name in SALES_CREATORS:
+            if st.button("🛒 New Sales Order", key="rl_new_so_btn", use_container_width=True):
+                st.session_state.show_new_so = True; st.rerun()
+        else:
+            st.button("🛒 New Sales Order", disabled=True, use_container_width=True)
+
+    # Show PO/SO overlays from req_list
+    if st.session_state.show_new_po: rl_purchase_order_dialog()
+    if st.session_state.show_new_so: rl_sales_order_dialog()
+
     st.markdown("---")
     if st.button("⬅ Back to Home", key="req_list_back"): st.session_state.page = "home"; st.rerun()
-
-elif st.session_state.page == "req_detail":
-    # comment/upload de-dupe for req_detail too
-    import time
-    _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
-    load_data()
-
-    idx = st.session_state.selected_request
-    request = st.session_state.requests[idx]
-    updated = {}
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
-
-    st.markdown("""
-    <style>
-      [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { font-size:24px!important; }
-      [data-testid="stSidebar"] p, [data-testid="stSidebar"] label { font-size:16px!important; }
-      button { font-size:16px!important; }
-    </style>
-    """, unsafe_allow_html=True)
-    st.sidebar.markdown("### 📄 Requerimientos Clientes Details")
-
-    original_status = request.get("Status", "OPEN")
-    status_options = ["OPEN","PURCHASE TEAM REVIEW","SALES TEAM REVIEW","CLOSED W","CLOSED L"]
-    status = st.sidebar.selectbox("Status", status_options,
-                                  index=status_options.index(original_status) if original_status in status_options else 0,
-                                  key="req_detail_status")
-    if status != original_status: updated["Status"] = status
-
-    if status == "CLOSED L":
-        reason_default = request.get("Close L Reason", "")
-        reason = st.sidebar.text_area("Reason for Closure (L)", value=reason_default, key="req_detail_reason_l")
-        if reason != reason_default: updated["Close L Reason"] = reason
-
-    items = request.get("Items", [])
-    st.session_state.setdefault("items_count", max(1, len(items)))
-    st.sidebar.markdown("### 📋 Items")
-    ca, cr = st.sidebar.columns([1,1])
-    if ca.button("➕ Add Item", key="req_detail_add"): st.session_state["items_count"] += 1
-    if cr.button("➖ Remove Item", key="req_detail_remove") and st.session_state["items_count"] > 1: st.session_state["items_count"] -= 1
-
-    new_items = []
-    for i in range(st.session_state["items_count"]):
-        c1, c2, c3 = st.sidebar.columns([3,2,1])
-        dv = items[i] if i < len(items) else {"Description": "", "Target Price": "", "QTY": ""}
-        desc = c1.text_input("Description", value=dv["Description"], key=f"req_detail_desc_{i}")
-        targ = c2.text_input("Target Price", value=dv["Target Price"], key=f"req_detail_target_{i}")
-        qty_in = c3.text_input("QTY", value=str(dv["QTY"]), key=f"req_detail_qty_{i}")
-        try: qty = int(qty_in) if qty_in != "" else ""
-        except: qty = qty_in
-        new_items.append({"Description": desc, "Target Price": targ, "QTY": qty})
-    if new_items != items: updated["Items"] = new_items
-
-    vendedores = [" ","John","Andres","Luz","Tito","Marcela","Carolina","Sabrina","Juan"]
-    compradores = [" ","David","Andres","Thea","Tito","Luz","Juan"]
-    cv, cc = st.sidebar.columns(2)
-    vend0 = request.get("Vendedor Encargado", " ")
-    comp0 = request.get("Comprador Encargado", " ")
-    sel_v = cv.selectbox("Vendedor", vendedores, index=vendedores.index(vend0) if vend0 in vendedores else 0, key="req_detail_vendedor")
-    sel_c = cc.selectbox("Comprador", compradores, index=compradores.index(comp0) if comp0 in compradores else 0, key="req_detail_comprador")
-    if sel_v != vend0: updated["Vendedor Encargado"] = sel_v
-    if sel_c != comp0: updated["Comprador Encargado"] = sel_c
-
-    dt0 = request.get("Fecha", str(date.today()))
-    dt = st.sidebar.date_input("Date", value=pd.to_datetime(dt0), key="req_detail_date")
-    if str(dt) != dt0: updated["Fecha"] = str(dt)
-
-    cs, cd, cb = st.sidebar.columns(3, gap="small")
-    with cs:
-        if updated and st.button("💾 Save", key="req_detail_save", use_container_width=True):
-            if "Items" in updated: st.session_state["items_count"] = len(updated["Items"])
-            request.update(updated); st.session_state.requests[idx] = request
-            save_data(); st.sidebar.success("✅ Saved")
-    with cd:
-        if st.button("🗑️ Delete", key="req_detail_delete", use_container_width=True):
-            delete_request(idx)
-    with cb:
-        if st.button("⬅ Back", key="req_detail_back", use_container_width=True):
-            st.session_state.page = "req_list"; st.rerun()
-    st.sidebar.markdown("---")
-
-    # Comments (de-duped)
-    def _submit_comment_value(idx: int, value: str) -> bool:
-        txt = (value or "").strip()
-        if not txt: return False
-        guard = st.session_state.setdefault("comment_guard", {})
-        now = time.time()
-        sig = f"{st.session_state.user_name}|{txt}"
-        last = guard.get(str(idx))
-        if last and last.get("sig")==sig and (now - last.get("ts",0)) < 3.0:
-            return False
-        add_comment(idx, st.session_state.user_name, txt)
-        guard[str(idx)] = {"sig": sig, "ts": now}
-        st.session_state["comment_guard"] = guard
-        return True
-
-    def _upload_attachment(idx: int, uploaded_file) -> bool:
-        if not uploaded_file: return False
-        guard = st.session_state.setdefault("upload_guard", {})
-        now = time.time()
-        last = guard.get(str(idx))
-        if last and last.get("name")==uploaded_file.name and (now - last.get("ts",0)) < 3.0:
-            return False
-        ts = datetime.now().strftime("%Y%m%d%H%M%S")
-        fn = f"{idx}_{ts}_{uploaded_file.name}"
-        with open(os.path.join(UPLOADS_DIR, fn), "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        add_comment(idx, st.session_state.user_name, "", attachment=fn)
-        guard[str(idx)] = {"name": uploaded_file.name, "ts": now}
-        st.session_state["upload_guard"] = guard
-        return True
-
-    st.markdown("## 💬 Comments")
-    col_l, col_center, col_r = st.columns([1,6,1])
-    with col_center:
-        st.markdown("""
-        <style>
-          .chat-author-in{font-size:12px;color:#555;margin:4px 0 0 5px;clear:both}
-          .chat-author-out{font-size:12px;color:#333;margin:4px 5px 0 0;clear:both;text-align:right}
-          .chat-bubble{padding:8px 12px;border-radius:16px;max-width:60%;margin:2px 0;word-wrap:break-word;clear:both}
-          .chat-timestamp{font-size:10px;color:#888;margin:2px 0 8px}
-          .chat-attachment{background:#DDEEFF;color:#003366;padding:8px 12px;border-radius:8px;float:left;max-width:60%;margin:4px 0;clear:both;word-wrap:break-word}
-          .attachment-link{color:#003366;text-decoration:none;font-weight:600}
-        </style>
-        """, unsafe_allow_html=True)
-
-        existing_comments = st.session_state.comments.get(str(idx), [])
-        authors = []
-        for c in existing_comments:
-            if c["author"] not in authors: authors.append(c["author"])
-        base_colors = ["#D1E8FF","#FFD1DC","#DFFFD6","#FFFACD","#E0E0E0"]
-        color_map = {a: base_colors[i % len(base_colors)] for i,a in enumerate(authors)}
-
-        for comment in existing_comments:
-            author = comment["author"]; text = comment.get("text",""); when = comment.get("when","")
-            attachment = comment.get("attachment")
-            file_path = os.path.join(UPLOADS_DIR, attachment) if attachment else None
-            bg = color_map.get(author, "#EDEDED")
-            align = "right" if author == st.session_state.user_name else "left"
-            float_dir = align
-            cls = 'out' if author == st.session_state.user_name else 'in'
-            st.markdown(f'<div class="chat-author-{cls}" style="text-align:{align};">{author}</div>', unsafe_allow_html=True)
-            if attachment:
-                link_html = f'<a href="/{file_path}" class="attachment-link" download>{attachment}</a>'
-                st.markdown(
-                    f'<div class="chat-attachment" style="float:{float_dir};">📎 {link_html}</div>'
-                    f'<div class="chat-timestamp" style="text-align:{align};">{when}</div>'
-                    f'<div style="clear:both;"></div>', unsafe_allow_html=True
-                )
-            if text:
-                st.markdown(
-                    f'<div class="chat-bubble" style="background:{bg}; float:{float_dir};">{text}</div>'
-                    f'<div class="chat-timestamp" style="text-align:{align};">{when}</div>'
-                    f'<div style="clear:both;"></div>', unsafe_allow_html=True
-                )
-
-        st.markdown("---")
-        text_key = f"new_msg_{idx}"
-        with st.form(key=f"comment_form_{idx}", clear_on_submit=True):
-            msg = st.text_input("Type your message here…", key=text_key, placeholder="Press Enter to send")
-            sent = st.form_submit_button("Send")
-            if sent and _submit_comment_value(idx, msg): st.rerun()
-
-        uploaded_file = st.file_uploader("Attach PDF, PNG or XLSX:", type=["pdf","png","xlsx"], key=f"fileuploader_{idx}")
-        _, cu = st.columns([1,1])
-        with cu:
-            if st.button("Upload File", key=f"upload_file_{idx}") and uploaded_file:
-                if _upload_attachment(idx, uploaded_file):
-                    st.success(f"Uploaded: {uploaded_file.name}"); st.rerun()
-
-
-
