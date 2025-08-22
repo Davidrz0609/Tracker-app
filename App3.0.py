@@ -1601,7 +1601,6 @@ if st.session_state.page == "detail":
                 st.success(f"Uploaded: {uploaded_file.name}")
                 st.rerun()
 ####
-
 elif st.session_state.page == "req_list":
     import streamlit as st
     import pandas as pd
@@ -1618,6 +1617,12 @@ elif st.session_state.page == "req_list":
     # ─── PERSIST DIALOG STATE ─────────────────────────────────────
     if "show_new_req" not in st.session_state:
         st.session_state.show_new_req = False
+
+    # One-shot flag to force-close dialog after submit (survives refresh)
+    if st.session_state.pop("req_dialog_just_closed", False):
+        st.session_state.show_new_req = False
+        # show a toast on the next run (so it’s visible outside the dialog)
+        st.toast("✅ Requerimiento enviado.")
 
     # ─── OVERLAY: NEW REQ FORM ─────────────────────────────────────
     @st.dialog(" 📄 Nuevo Requerimiento", width="large")
@@ -1677,7 +1682,7 @@ elif st.session_state.page == "req_list":
         send_col, cancel_col = st.columns([2,1])
         with send_col:
             if st.button("✅ Enviar Requerimiento", key="req_submit", use_container_width=True):
-                cleaned = [it for it in items if it["Description"].strip()]
+                cleaned = [it for it in items if (it["Description"] or "").strip()]
                 if not cleaned or sel_c == " ":
                     st.error("❗ Completa al menos una descripción y el campo Comprador.")
                 else:
@@ -1692,10 +1697,13 @@ elif st.session_state.page == "req_list":
                     new_idx = len(st.session_state.requests) - 1
                     st.session_state.comments[str(new_idx)] = []
                     save_data()
-                    st.success("✅ Requerimiento enviado.")
+
+                    # Reset form state and close dialog on next run
                     st.session_state.req_item_count = 1
                     st.session_state.show_new_req = False
+                    st.session_state.req_dialog_just_closed = True
                     st.rerun()
+
         with cancel_col:
             if st.button("❌ Cancel", key="req_cancel", use_container_width=True):
                 st.session_state.show_new_req = False
@@ -1780,6 +1788,7 @@ elif st.session_state.page == "req_list":
             st.session_state.page = "requests"
             st.rerun()
 
+    # Open dialog (only if flag is True)
     if st.session_state.show_new_req:
         new_req_dialog()
 
@@ -1866,8 +1875,7 @@ elif st.session_state.page == "req_list":
         st.session_state.page = "home"
         st.rerun()
 
-
-########## 
+####
 
 elif st.session_state.page == "req_detail":
     import os
@@ -2312,5 +2320,6 @@ elif st.session_state.page == "req_detail":
         purchase_order_dialog()
     if st.session_state.show_new_so:
         sales_order_dialog()
+
 
 
