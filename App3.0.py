@@ -871,10 +871,10 @@ if st.session_state.page == "requests":
     # Order you asked for: READY first, then a sensible progression
     STATUS_ORDER = [
         "READY",
-        "IN TRANSIT",
-        "RECIBIDO / PROCESANDO",
-        "SEPARAR Y CONFIRMAR",
         "SEPARADO - PENDIENTE",
+        "SEPARAR Y CONFIRMAR",
+        "RECIBIDO / PROCESANDO",
+        "IN TRANSIT",
         "PENDIENTE",
         "IMPRESA",
         "IMPRIMIR",
