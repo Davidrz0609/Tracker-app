@@ -1400,16 +1400,16 @@ if st.session_state.page == "detail":
             x = y
         return mapping.get(x, " ")
 
+    # Keep item lists same length
     def _ensure_item_lists(req: dict, price_key: str):
-        """Pad Description/Quantity/Price lists to same length."""
         descs = list(req.get("Description", []))
         qtys  = list(req.get("Quantity", []))
         prices = list(req.get(price_key, []))
         L = max(len(descs), len(qtys), len(prices), 0)
-        def pad(lst, fill):
-            return list(lst) + [fill]*(L - len(lst))
-        # keep types as present (strings); conversion happens on save
-        return pad(descs, ""), pad(qtys, ""), pad(prices, "")
+        while len(descs) < L:  descs.append("")
+        while len(qtys)  < L:  qtys.append("")
+        while len(prices) < L: prices.append("")
+        return descs, qtys, prices
 
     # ── Auto-refresh comments every second ──────────────────────────
     _ = st_autorefresh(
@@ -1485,7 +1485,10 @@ if st.session_state.page == "detail":
         encargado = st.selectbox(
             "Encargado",
             [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea", "Juan"],
-            index=_safe_index([" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea", "Juan"], encargado_val),
+            index=_safe_index(
+                [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea", "Juan"],
+                encargado_val
+            ),
             key="detail_Encargado"
         )
         if encargado != encargado_val:
@@ -1495,71 +1498,57 @@ if st.session_state.page == "detail":
         st.markdown("### 🧾 Items")
 
         price_key = "Cost" if is_purchase else "Sale Price"
-        # keep lists in sync
         descs, qtys, prices = _ensure_item_lists(request, price_key)
 
-        # ➕ Add item button (appends a blank row, persists immediately)
-        if st.button("➕ Add Item", key=f"add_item_{index}", use_container_width=True):
-            descs.append("")
-            qtys.append("")
-            prices.append("" if not hide_prices else "")
-            request["Description"] = descs
-            request["Quantity"] = qtys
-            request[price_key] = prices
-            st.session_state.requests[index] = request
-            save_data()
-            st.rerun()
-
-        # render rows (with optional per-row remove)
-        rows_to_delete = []
+        # Render rows
         for i in range(len(descs)):
-            c1, c2, c3, c4 = st.columns([3, 1, 1, 0.4])
-            new_d = c1.text_input(f"Description #{i+1}", descs[i], key=f"detail_desc_{i}")
-            new_q = c2.text_input(f"Qty #{i+1}", qtys[i], key=f"detail_qty_{i}")
+            c1, c2, c3 = st.columns([3, 1, 1])
+            descs[i] = c1.text_input(f"Description #{i+1}", descs[i], key=f"detail_desc_{i}")
+            qtys[i]  = c2.text_input(f"Quantity #{i+1}",   qtys[i],  key=f"detail_qty_{i}")
             if hide_prices:
-                c3.markdown("**—**"); new_p = prices[i]
+                c3.markdown("**—**")
             else:
-                new_p = c3.text_input(f"{price_key} #{i+1}", prices[i], key=f"detail_price_{i}")
-            # tiny delete button
-            with c4:
-                if st.button("🗑️", key=f"del_row_{i}_{index}", help="Remove this item"):
-                    rows_to_delete.append(i)
+                prices[i] = c3.text_input(f"{price_key} #{i+1}", prices[i], key=f"detail_price_{i}", placeholder="e.g. 1500")
 
-            descs[i] = new_d
-            qtys[i]  = new_q
-            prices[i]= new_p
+        # Big buttons like your screenshot
+        c_add, c_rem = st.columns([1, 1])
+        with c_add:
+            if st.button("➕ Add another item", use_container_width=True, key=f"add_item_{index}"):
+                descs.append("")
+                qtys.append("")
+                prices.append("" if not hide_prices else "")
+                request["Description"] = descs
+                request["Quantity"] = qtys
+                request[price_key] = prices
+                st.session_state.requests[index] = request
+                save_data()
+                st.rerun()
 
-        # apply deletes (from last to first to keep indices valid)
-        if rows_to_delete:
-            for ri in sorted(rows_to_delete, reverse=True):
-                if 0 <= ri < len(descs):
-                    descs.pop(ri)
-                    qtys.pop(ri)
-                    prices.pop(ri)
-            request["Description"] = descs
-            request["Quantity"] = qtys
-            request[price_key] = prices
-            st.session_state.requests[index] = request
-            save_data()
-            st.rerun()
+        with c_rem:
+            if st.button("❌ Remove last item", use_container_width=True, key=f"remove_item_{index}") and descs:
+                descs.pop()
+                if qtys:   qtys.pop()
+                if prices: prices.pop()
+                request["Description"] = descs
+                request["Quantity"] = qtys
+                request[price_key] = prices
+                st.session_state.requests[index] = request
+                save_data()
+                st.rerun()
 
-        # collect updated fields (convert types when possible)
-        orig_descs = request.get("Description", [])
-        orig_qtys  = request.get("Quantity", [])
-        orig_prices= request.get(price_key, [])
-
-        if descs != orig_descs:
+        # Collect changes (convert types when possible)
+        if descs != request.get("Description", []):
             updated_fields["Description"] = descs
 
-        if qtys != orig_qtys:
+        if qtys != request.get("Quantity", []):
             try:
-                updated_fields["Quantity"] = [int(x) if str(x).strip() != "" else 0 for x in qtys]
+                updated_fields["Quantity"] = [int(x) if str(x).strip() else 0 for x in qtys]
             except:
                 updated_fields["Quantity"] = qtys
 
-        if not hide_prices and prices != orig_prices:
+        if not hide_prices and prices != request.get(price_key, []):
             try:
-                updated_fields[price_key] = [float(x) if str(x).strip() != "" else 0.0 for x in prices]
+                updated_fields[price_key] = [float(x) if str(x).strip() else 0.0 for x in prices]
             except:
                 updated_fields[price_key] = prices
 
@@ -1575,10 +1564,11 @@ if st.session_state.page == "detail":
         if str(eta_date) != eta_val:
             updated_fields["ETA Date"] = str(eta_date)
 
-        ship_opts = [" ", "Nivel 1 Pick up", "Nivel 1 Delivery",
-                     "Nivel 2 Pick up", "Nivel 2 Delivery",
-                     "Nivel 3 Pick up", "Nivel 3 Delivery"]
-
+        ship_opts = [
+            " ", "Nivel 1 Pick up", "Nivel 1 Delivery",
+            "Nivel 2 Pick up", "Nivel 2 Delivery",
+            "Nivel 3 Pick up", "Nivel 3 Delivery"
+        ]
         raw_ship_val = request.get("Shipping Method", " ")
         ship_val = normalize_shipping(raw_ship_val)
 
@@ -1588,7 +1578,6 @@ if st.session_state.page == "detail":
             index=_safe_index(ship_opts, ship_val),
             key="detail_Shipping"
         )
-        # Save normalized value (ensures future data is clean)
         if shipping_method != raw_ship_val:
             updated_fields["Shipping Method"] = shipping_method
 
@@ -1610,7 +1599,6 @@ if st.session_state.page == "detail":
     st.markdown("## 💬 Comments")
     col_l, col_center, col_r = st.columns([1, 6, 1])
     with col_center:
-        # inject CSS for chat bubbles layout
         st.markdown("""
             <style>
                 .chat-author-in    { font-size:12px; color:#555; margin:4px 0 0 5px; clear:both; }
