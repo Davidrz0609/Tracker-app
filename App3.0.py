@@ -2037,6 +2037,37 @@ elif st.session_state.page == "req_detail":
     from datetime import date, datetime
     from streamlit_autorefresh import st_autorefresh
 
+    # ───────── Status-change helpers ─────────
+    def _now_str():
+        return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Map status → bubble color (adjust to match your palette)
+    STATUS_COLOR = {
+        "OPEN":                  "#7f8c8d",  # gray
+        "PURCHASE TEAM REVIEW":  "#f39c12",  # orange
+        "SALES TEAM REVIEW":     "#8e44ad",  # purple
+        "CLOSED W":              "#27ae60",  # green
+        "CLOSED L":              "#e74c3c",  # red
+    }
+    def _status_color(s: str) -> str:
+        return STATUS_COLOR.get((s or "").strip().upper(), "#7f8c8d")
+
+    def _log_status_change(idx: int, old_status: str, new_status: str, who: str):
+        """
+        Append a structured status-change event into the same comments list.
+        Renderer below shows a centered colored bubble for this event.
+        """
+        entry = {
+            "author": who,
+            "when": _now_str(),
+            "text": "",
+            "status_change": { "old": old_status, "new": new_status }
+        }
+        key = str(idx)
+        comments = st.session_state.comments.setdefault(key, [])
+        comments.append(entry)
+        st.session_state.comments[key] = comments
+
     # ─── Deduped submit helpers (avoid double posts during auto-refresh) ───
     def _submit_comment_value(idx: int, value: str) -> bool:
         """
@@ -2120,7 +2151,7 @@ elif st.session_state.page == "req_detail":
                                  index=status_options.index(current_status) if current_status in status_options else 0,
                                  key="req_detail_status")
     if status != original_status:
-        updated["Status"] = status
+        updated["Status"] = status  # <-- mark for save + event log
 
     # ─── CLOSE L REASON ────────────────────────────────────────────
     if status == "CLOSED L":
@@ -2182,6 +2213,9 @@ elif st.session_state.page == "req_detail":
     cs, cd, cb = st.sidebar.columns(3, gap="small")
     with cs:
         if updated and st.button("💾 Save", key="req_detail_save", use_container_width=True):
+            # Log status change BEFORE saving the record
+            if "Status" in updated and updated["Status"] != original_status:
+                _log_status_change(idx, original_status, updated["Status"], st.session_state.user_name)
             if "Items" in updated:
                 st.session_state["items_count"] = len(updated["Items"])
             request.update(updated)
@@ -2197,7 +2231,7 @@ elif st.session_state.page == "req_detail":
             st.rerun()
     st.sidebar.markdown("---")
 
-    # ─── MAIN AREA: COMMENTS ───────────────────────────────────────
+    # ─── MAIN AREA: COMMENTS (with status-change bubble) ───────────
     st.markdown("## 💬 Comments")
     col_l, col_center, col_r = st.columns([1, 6, 1])
     with col_center:
@@ -2209,18 +2243,38 @@ elif st.session_state.page == "req_detail":
           .chat-timestamp    { font-size:10px; color:#888; margin:2px 0 8px; }
           .chat-attachment   { background:#DDEEFF; color:#003366; padding:8px 12px; border-radius:8px; float:left; max-width:60%; margin:4px 0; clear:both; word-wrap:break-word; }
           .attachment-link   { color:#003366; text-decoration:none; font-weight:600; }
+          /* status-change bubble */
+          .status-change     { padding:8px 12px; border-radius:18px; color:#fff; text-align:center; max-width:60%; margin:8px auto; font-weight:600; }
+          .status-small      { font-size:12px; opacity:0.9; font-weight:500; margin-top:4px; }
         </style>
         """, unsafe_allow_html=True)
 
         existing_comments = st.session_state.comments.get(str(idx), [])
         authors = []
         for c in existing_comments:
-            if c["author"] not in authors:
+            if c.get("author") and c["author"] not in authors:
                 authors.append(c["author"])
         base_colors = ["#D1E8FF","#FFD1DC","#DFFFD6","#FFFACD","#E0E0E0"]
         color_map = {a: base_colors[i % len(base_colors)] for i,a in enumerate(authors)}
 
         for comment in existing_comments:
+            # Special render for status change
+            if "status_change" in comment:
+                old_s = comment["status_change"].get("old","")
+                new_s = comment["status_change"].get("new","")
+                who   = comment.get("author","")
+                when  = comment.get("when","")
+                bg    = _status_color(new_s)
+                html  = (
+                    f'<div class="status-change" style="background:{bg};">'
+                    f'{who} cambió estado: <b>{old_s}</b> → <b>{new_s}</b>'
+                    f'<div class="status-small">{when}</div>'
+                    f'</div>'
+                )
+                st.markdown(html, unsafe_allow_html=True)
+                continue
+
+            # Regular comment / attachment
             author = comment["author"]
             text = comment.get("text", "")
             when = comment.get("when", "")
@@ -2524,6 +2578,5 @@ elif st.session_state.page == "req_detail":
         purchase_order_dialog()
     if st.session_state.show_new_so:
         sales_order_dialog()
-
 
 
