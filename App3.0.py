@@ -1878,18 +1878,63 @@ elif st.session_state.page == "req_list":
 ####
 
 elif st.session_state.page == "req_detail":
-    import os
+    import os, time
     import pandas as pd
     from datetime import date, datetime
     from streamlit_autorefresh import st_autorefresh
 
-    # ─── Callback for submitting comments on Enter ─────────────────
-    def _submit_comment(idx, key):
-        new_msg = st.session_state[key].strip()
-        if new_msg:
-            add_comment(idx, st.session_state.user_name, new_msg)
-            st.session_state[key] = ""
-            st.rerun()
+    # ─── Deduped submit helpers (avoid double posts during auto-refresh) ───
+    def _submit_comment_value(idx: int, value: str) -> bool:
+        """
+        Submit a comment only if it's not a recent duplicate.
+        Returns True if a comment was added.
+        """
+        txt = (value or "").strip()
+        if not txt:
+            return False
+
+        guard = st.session_state.setdefault("comment_guard", {})
+        now = time.time()
+        sig = f"{st.session_state.user_name}|{txt}"
+        last = guard.get(str(idx))  # {"sig":..., "ts":...}
+
+        # Drop if identical to last submission within 3 seconds
+        if last and last.get("sig") == sig and (now - last.get("ts", 0)) < 3.0:
+            return False
+
+        add_comment(idx, st.session_state.user_name, txt)
+        guard[str(idx)] = {"sig": sig, "ts": now}
+        st.session_state["comment_guard"] = guard
+        return True
+
+    def _upload_attachment(idx: int, uploaded_file) -> bool:
+        """
+        Save an attachment and post it as a comment, with a brief de-dupe guard.
+        Returns True if uploaded.
+        """
+        if not uploaded_file:
+            return False
+
+        guard = st.session_state.setdefault("upload_guard", {})
+        now = time.time()
+        last = guard.get(str(idx))  # {"name":..., "ts":...}
+
+        # If the same file name was just uploaded in the last 3s, drop it
+        if last and last.get("name") == uploaded_file.name and (now - last.get("ts", 0)) < 3.0:
+            return False
+
+        # Persist file
+        UPLOADS_DIR = "uploads"
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        fn = f"{idx}_{ts}_{uploaded_file.name}"
+        with open(os.path.join(UPLOADS_DIR, fn), "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        add_comment(idx, st.session_state.user_name, "", attachment=fn)
+        guard[str(idx)] = {"name": uploaded_file.name, "ts": now}
+        st.session_state["upload_guard"] = guard
+        return True
 
     # ─── Auto‐refresh every second ─────────────────────────────────
     _ = st_autorefresh(interval=1000, limit=None, key="requests_refresh")
@@ -1900,6 +1945,7 @@ elif st.session_state.page == "req_detail":
     updated = {}
 
     UPLOADS_DIR = "uploads"  # make sure this exists
+    os.makedirs(UPLOADS_DIR, exist_ok=True)
 
     # ─── Sidebar styling & header ────────────────────────────────
     st.markdown("""
@@ -2011,6 +2057,7 @@ elif st.session_state.page == "req_detail":
           .attachment-link   { color:#003366; text-decoration:none; font-weight:600; }
         </style>
         """, unsafe_allow_html=True)
+
         existing_comments = st.session_state.comments.get(str(idx), [])
         authors = []
         for c in existing_comments:
@@ -2018,6 +2065,7 @@ elif st.session_state.page == "req_detail":
                 authors.append(c["author"])
         base_colors = ["#D1E8FF","#FFD1DC","#DFFFD6","#FFFACD","#E0E0E0"]
         color_map = {a: base_colors[i % len(base_colors)] for i,a in enumerate(authors)}
+
         for comment in existing_comments:
             author = comment["author"]
             text = comment.get("text", "")
@@ -2045,26 +2093,28 @@ elif st.session_state.page == "req_detail":
                     f'<div style="clear:both;"></div>',
                     unsafe_allow_html=True
                 )
+
         st.markdown("---")
+
+        # Use a FORM so Enter submits once; plus dedupe inside _submit_comment_value
         text_key = f"new_msg_{idx}"
-        st.text_input("Type your message here…", key=text_key, on_change=_submit_comment, args=(idx, text_key), placeholder="Press enter to send")
+        with st.form(key=f"comment_form_{idx}", clear_on_submit=True):
+            msg = st.text_input("Type your message here…", key=text_key, placeholder="Press Enter to send")
+            sent = st.form_submit_button("Send")
+            if sent and _submit_comment_value(idx, msg):
+                st.rerun()
+
         uploaded_file = st.file_uploader("Attach PDF, PNG or XLSX:", type=["pdf","png","xlsx"], key=f"fileuploader_{idx}")
         _, cu = st.columns([1,1])
         with cu:
             if st.button("Upload File", key=f"upload_file_{idx}") and uploaded_file:
-                ts = datetime.now().strftime("%Y%m%d%H%M%S")
-                fn = f"{idx}_{ts}_{uploaded_file.name}"
-                with open(os.path.join(UPLOADS_DIR, fn), "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                add_comment(idx, st.session_state.user_name, "", attachment=fn)
-                st.success(f"Uploaded: {uploaded_file.name}")
-                st.rerun()
+                if _upload_attachment(idx, uploaded_file):
+                    st.success(f"Uploaded: {uploaded_file.name}")
+                    st.rerun()
+
     if "show_new_po" not in st.session_state: st.session_state.show_new_po=False
     if "show_new_so" not in st.session_state: st.session_state.show_new_so=False
     # ... rest unchanged ...
-
-    # ... rest of your overlays and quick actions unchanged ...
-
 
     # ─── Quiénes pueden crear PO (igual que home) ───────────────
     PURCHASE_ALLOWED = {"Tito", "Andres", "Luz", "David","Juan","Maye"}
