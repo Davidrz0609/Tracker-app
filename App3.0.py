@@ -912,7 +912,7 @@ if st.session_state.page == "requests":
             order_date = st.date_input("Order Date", value=date.today())
         with c4:
             eta_date   = st.date_input("ETA Date")
-        shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"])
+        shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 Pick up", "Nivel 1 Delivery","Nivel 2 Pick up", "Nivel 2 Delivery",  "Nivel 3 Pick up", "Nivel 3 Delivery"])
 
         col_submit, col_cancel = st.columns([2,1])
         with col_submit:
@@ -1012,7 +1012,7 @@ if st.session_state.page == "requests":
             so_date = st.date_input("Order Date", value=date.today(), key="so_date")
         with s2:
             so_eta  = st.date_input("ETA Date", key="so_eta")
-        so_ship = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"], key="so_shipping")
+        so_ship = st.selectbox("Shipping Method", [" ", "Nivel 1 Pick up", "Nivel 1 Delivery","Nivel 2 Pick up", "Nivel 2 Delivery",  "Nivel 3 Pick up", "Nivel 3 Delivery"], key="so_shipping")
 
         cs1, cs2 = st.columns([2,1])
         with cs1:
@@ -2174,7 +2174,7 @@ elif st.session_state.page == "req_detail":
             order_date = st.date_input("Order Date", value=date.today())
         with c4:
             eta_date   = st.date_input("ETA Date")
-        shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"])
+        shipping_method = st.selectbox("Shipping Method", [" ", "Nivel 1 Pick up", "Nivel 1 Delivery","Nivel 2 Pick up", "Nivel 2 Delivery",  "Nivel 3 Pick up", "Nivel 3 Delivery"])
 
         # Submit/Cancel
         col_submit, col_cancel = st.columns([2,1])
@@ -2283,7 +2283,7 @@ elif st.session_state.page == "req_detail":
             so_date = st.date_input("Order Date", value=date.today())
         with s2:
             so_eta  = st.date_input("ETA Date")
-        so_ship = st.selectbox("Shipping Method", [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"])
+        so_ship = st.selectbox("Shipping Method", [" ", "Nivel 1 Pick up", "Nivel 1 Delivery","Nivel 2 Pick up", "Nivel 2 Delivery",  "Nivel 3 Pick up", "Nivel 3 Delivery"])
 
         # Submit/Cancel
         cs1, cs2 = st.columns([2,1])
