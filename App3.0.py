@@ -1333,14 +1333,14 @@ UPLOADS_DIR = "uploads"  # path to your uploads directory
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
 if st.session_state.page == "detail":
-    import os, time
+    import os, time, re
     import pandas as pd
     from datetime import date, datetime
 
     UPLOADS_DIR = "uploads"
     os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-    # ── De-dupe helpers (avoid double posts during auto-refresh) ──
+    # ── Helpers ─────────────────────────────────────────────────────
     def _submit_comment_value(idx: int, value: str) -> bool:
         txt = (value or "").strip()
         if not txt:
@@ -1373,14 +1373,42 @@ if st.session_state.page == "detail":
         st.session_state["detail_upload_guard"] = guard
         return True
 
-    # Auto-refresh comments every second
+    def _safe_index(options, value, default=0):
+        try:
+            return options.index(value)
+        except ValueError:
+            return default
+
+    def normalize_shipping(s: str) -> str:
+        """
+        Map short codes like 'Nivel 1 PU' / 'Nivel 2 DL' to canonical labels.
+        Falls back to ' ' when unknown/empty.
+        """
+        mapping = {
+            "nivel 1 pu": "Nivel 1 Pick up",
+            "nivel 2 pu": "Nivel 2 Pick up",
+            "nivel 3 pu": "Nivel 3 Pick up",
+            "nivel 1 dl": "Nivel 1 Delivery",
+            "nivel 2 dl": "Nivel 2 Delivery",
+            "nivel 3 dl": "Nivel 3 Delivery",
+        }
+        x = (s or "").strip().lower()
+        # also accept loose variants like "nivel 2 pickup" or "nivel-3 delivery"
+        if x not in mapping:
+            y = re.sub(r"[-_]", " ", x)
+            y = re.sub(r"\s+", " ", y)
+            y = y.replace("pickup", "pu").replace("pick up", "pu").replace("delivery", "dl")
+            x = y
+        return mapping.get(x, " ")
+
+    # ── Auto-refresh comments every second ──────────────────────────
     _ = st_autorefresh(
         interval=1000,
         limit=None,
         key=f"detail_comments_refresh_{st.session_state.selected_request}"
     )
 
-    # Validate selection
+    # ── Validate selection ───────────────────────────────────────────
     index = st.session_state.selected_request
     if index is None or index >= len(st.session_state.requests):
         st.error("Invalid request selected.")
@@ -1389,8 +1417,6 @@ if st.session_state.page == "detail":
     request = st.session_state.requests[index]
     updated_fields = {}
     is_purchase = (request.get("Type") == "💲")
-
-    # Should Bodega see prices?
     hide_prices = (st.session_state.user_name == "Bodega")
 
     # ─────────── SIDEBAR ───────────
@@ -1438,7 +1464,7 @@ if st.session_state.page == "detail":
         pago = st.selectbox(
             "Método de Pago",
             [" ", "Wire", "Cheque", "Credito", "Efectivo"],
-            index=[" ", "Wire", "Cheque", "Credito", "Efectivo"].index(pago_val),
+            index=_safe_index([" ", "Wire", "Cheque", "Credito", "Efectivo"], pago_val),
             key="detail_Pago"
         )
         if pago != pago_val:
@@ -1448,13 +1474,13 @@ if st.session_state.page == "detail":
         encargado_val = request.get("Encargado", " ")
         encargado = st.selectbox(
             "Encargado",
-            [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"],
-            index=[" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"].index(encargado_val),
+            [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea", "Juan"],
+            index=_safe_index([" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea", "Juan"], encargado_val),
             key="detail_Encargado"
         )
         if encargado != encargado_val:
             updated_fields["Encargado"] = encargado
-        
+
         # ─── 🧾 Items (Description / Qty / Price) ─────────────────
         st.markdown("### 🧾 Items")
         descs = request.get("Description", [])
@@ -1476,12 +1502,17 @@ if st.session_state.page == "detail":
         if new_descs != descs:
             updated_fields["Description"] = new_descs
         if new_qtys != qtys:
-            try: updated_fields["Quantity"] = [int(x) for x in new_qtys]
-            except: updated_fields["Quantity"] = new_qtys
+            try:
+                updated_fields["Quantity"] = [int(x) for x in new_qtys]
+            except:
+                updated_fields["Quantity"] = new_qtys
         if new_prices != prices:
-            try: updated_fields[price_key] = [float(x) for x in new_prices]
-            except: updated_fields[price_key] = new_prices
+            try:
+                updated_fields[price_key] = [float(x) for x in new_prices]
+            except:
+                updated_fields[price_key] = new_prices
 
+        # ─── 🚚 Shipping Information ───────────────────────────────
         st.markdown("### 🚚 Shipping Information")
         date_val = request.get("Date", str(date.today()))
         order_date = st.date_input("Order Date", value=pd.to_datetime(date_val), key="detail_Date")
@@ -1493,14 +1524,22 @@ if st.session_state.page == "detail":
         if str(eta_date) != eta_val:
             updated_fields["ETA Date"] = str(eta_date)
 
-        ship_val = request.get("Shipping Method", " ")
+        ship_opts = [" ", "Nivel 1 Pick up", "Nivel 1 Delivery",
+                     "Nivel 2 Pick up", "Nivel 2 Delivery",
+                     "Nivel 3 Pick up", "Nivel 3 Delivery"]
+
+        # normalize only Shipping Method (handles 'Nivel 1 PU' / 'Nivel 2 DL', etc.)
+        raw_ship_val = request.get("Shipping Method", " ")
+        ship_val = normalize_shipping(raw_ship_val)
+
         shipping_method = st.selectbox(
             "Shipping Method",
-            [" ", "Nivel 1 Pick up", "Nivel 1 Delivery","Nivel 2 Pick up", "Nivel 2 Delivery",  "Nivel 3 Pick up", "Nivel 3 Delivery"],
-            index=[" ", "Nivel 1 Pick up", "Nivel 1 Delivery","Nivel 2 Pick up", "Nivel 2 Delivery",  "Nivel 3 Pick up", "Nivel 3 Delivery"].index(ship_val),
+            ship_opts,
+            index=_safe_index(ship_opts, ship_val),
             key="detail_Shipping"
         )
-        if shipping_method != ship_val:
+        # Save normalized value (ensures future data is clean)
+        if shipping_method != raw_ship_val:
             updated_fields["Shipping Method"] = shipping_method
 
         st.markdown("---")
@@ -1598,6 +1637,7 @@ if st.session_state.page == "detail":
                 if _upload_attachment(index, uploaded_file):
                     st.success(f"Uploaded: {uploaded_file.name}")
                     st.rerun()
+
 
 ####
 elif st.session_state.page == "req_list":
