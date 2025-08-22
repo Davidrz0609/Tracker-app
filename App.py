@@ -847,28 +847,25 @@ elif st.session_state.page == "summary":
 # ---------------- ALL PURCHASE/SALES ORDERS PAGE ----------------------
 # ──────────────────────────────────────────────────────────────────────
 # Assumes helpers exist: add_request(), load_data(), save_data(), delete_request(),
-# go_to(page), format_status_badge(status)
+# go_to(page), format_status_badge(status), export_snapshot_to_disk()
 
 if st.session_state.page == "requests":
     user = st.session_state.user_name
 
     # ─── ACCESS GROUPS ─────────────────────────────────────────────
-    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina","Juan", "Marcela","Maye"}
-    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David","Juan","Maye"}          # can open PO dialog
-    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David","Juan","Maye"}           # can see price columns
-    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David","Juan","Maye"} # can see POs & SOs
+    SALES_CREATORS    = {"Andres", "Tito", "Luz", "David", "John", "Sabrina", "Carolina", "Juan", "Marcela", "Maye"}
+    PURCHASE_CREATORS = {"Andres", "Tito", "Luz", "David", "Juan", "Maye"}          # can open PO dialog
+    PRICE_ALLOWED     = {"Andres", "Luz", "Tito", "David", "Juan", "Maye"}          # can see price columns
+    BODEGA            = {"Bodega", "Andres", "Tito", "Luz", "David", "Juan", "Maye"}# can see POs & SOs
 
     # ─── STATE FOR OVERLAYS ───────────────────────────────────────
-    if "show_new_po" not in st.session_state:
-        st.session_state.show_new_po = False
-    if "show_new_so" not in st.session_state:
-        st.session_state.show_new_so = False
+    st.session_state.setdefault("show_new_po", False)
+    st.session_state.setdefault("show_new_so", False)
 
     # ─── PURCHASE ORDER OVERLAY ───────────────────────────────────
     @st.dialog("💲 New Purchase Order", width="large")
     def purchase_order_dialog():
-        if "purchase_item_rows" not in st.session_state:
-            st.session_state.purchase_item_rows = 1
+        st.session_state.setdefault("purchase_item_rows", 1)
         st.session_state.purchase_item_rows = max(1, st.session_state.purchase_item_rows)
 
         st.markdown("""
@@ -887,7 +884,7 @@ if st.session_state.page == "requests":
         with c1:
             po_number    = st.text_input("Purchase Order#", placeholder="e.g. 12345")
             status_po    = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"])
-            encargado_po = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"])
+            encargado_po = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea", "Juan"])
         with c2:
             order_number = st.text_input("Tracking# (optional)", placeholder="e.g. TRK-45678")
             proveedor    = st.text_input("Proveedor", placeholder="e.g. Amazon")
@@ -920,15 +917,15 @@ if st.session_state.page == "requests":
         col_submit, col_cancel = st.columns([2,1])
         with col_submit:
             if st.button("✅ Submit Purchase Request", use_container_width=True):
-                clean_descs = [d.strip() for d in descs if d.strip()]
+                clean_descs = [d.strip() for d in descs if isinstance(d, str) and d.strip()]
                 clean_qtys, clean_costs = [], []
                 for q in qtys:
-                    q = q.strip()
+                    q = (q or "").strip()
                     if q:
                         try: clean_qtys.append(int(float(q)))
                         except: clean_qtys.append(q)
                 for c in costs:
-                    c = c.strip()
+                    c = (c or "").strip()
                     if c:
                         try: clean_costs.append(float(c))
                         except: clean_costs.append(c)
@@ -951,7 +948,6 @@ if st.session_state.page == "requests":
                         "Encargado": encargado_po,
                         "Pago": pago
                     })
-                    # export immediately after adding
                     try:
                         export_snapshot_to_disk()
                     except Exception as e:
@@ -959,7 +955,7 @@ if st.session_state.page == "requests":
 
                     st.success("✅ Purchase request submitted.")
                     st.session_state.purchase_item_rows = 1
-                    st.session_state.show_new_po       = False
+                    st.session_state.show_new_po = False
                     st.rerun()
         with col_cancel:
             if st.button("❌ Cancel", use_container_width=True):
@@ -969,8 +965,7 @@ if st.session_state.page == "requests":
     # ─── SALES ORDER OVERLAY ───────────────────────────────────────
     @st.dialog("🛒 New Sales Order", width="large")
     def sales_order_dialog():
-        if "invoice_item_rows" not in st.session_state:
-            st.session_state.invoice_item_rows = 1
+        st.session_state.setdefault("invoice_item_rows", 1)
         st.session_state.invoice_item_rows = max(1, st.session_state.invoice_item_rows)
 
         st.markdown("""
@@ -989,7 +984,7 @@ if st.session_state.page == "requests":
         with d1:
             order_number_so = st.text_input("Ref# (optional)", placeholder="e.g. SO-2025-001", key="so_ref")
             status_so       = st.selectbox("Status *", [" ", "COMPLETE", "READY", "CANCELLED", "IN TRANSIT"], key="so_status")
-            encargado_so    = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea","Juan"], key="so_encargado")
+            encargado_so    = st.selectbox("Encargado *", [" ", "Andres", "Tito", "Luz", "David", "Marcela", "John", "Carolina", "Thea", "Juan"], key="so_encargado")
         with d2:
             tracking_so = st.text_input("Tracking# (optional)", placeholder="e.g. TRK45678", key="so_track")
             cliente     = st.text_input("Cliente", placeholder="e.g. TechCorp LLC", key="so_cliente")
@@ -1022,15 +1017,15 @@ if st.session_state.page == "requests":
         cs1, cs2 = st.columns([2,1])
         with cs1:
             if st.button("✅ Submit Sales Order", use_container_width=True):
-                clean_ds = [d.strip() for d in ds if d.strip()]
+                clean_ds = [d.strip() for d in ds if isinstance(d, str) and d.strip()]
                 clean_qs, clean_prices = [], []
                 for q in qs:
-                    q = q.strip()
+                    q = (q or "").strip()
                     if q:
                         try: clean_qs.append(int(float(q)))
                         except: clean_qs.append(q)
                 for p in prices:
-                    p = p.strip()
+                    p = (p or "").strip()
                     if p:
                         try: clean_prices.append(float(p))
                         except: clean_prices.append(p)
@@ -1053,7 +1048,6 @@ if st.session_state.page == "requests":
                         "Encargado": encargado_so,
                         "Pago": pago_so
                     })
-                    # export immediately after adding
                     try:
                         export_snapshot_to_disk()
                     except Exception as e:
@@ -1061,7 +1055,7 @@ if st.session_state.page == "requests":
 
                     st.success("✅ Sales order submitted.")
                     st.session_state.invoice_item_rows = 1
-                    st.session_state.show_new_so    = False
+                    st.session_state.show_new_so = False
                     st.rerun()
         with cs2:
             if st.button("❌ Cancel", use_container_width=True):
@@ -1079,10 +1073,6 @@ if st.session_state.page == "requests":
         export_snapshot_to_disk()
     except Exception as e:
         st.warning(f"Auto-export failed: {e}")
-    #st.caption(f"Auto-export folder: {Path(EXPORT_DIR).resolve()}")
-    #if os.path.exists(EXPORT_XLSX):
-       # with open(EXPORT_XLSX, "rb") as f:
-            #st.download_button("⬇️ Download latest snapshot (Excel)", f, "HelpCenter_Snapshot.xlsx")
 
     # ─── SHOW OVERLAYS IF TRIGGERED ───────────────────────────────
     if st.session_state.show_new_po:
@@ -1106,16 +1096,17 @@ if st.session_state.page == "requests":
 
     # ─── ACCESS SCOPE ─────────────────────────────────────────────
     all_requests = st.session_state.requests
+    # Keep (global_index, request) pairs so keys remain unique & stable
     if user in BODEGA:
-        base_requests = all_requests
+        base_requests = list(enumerate(all_requests))
     else:
-        base_requests = [r for r in all_requests if r.get("Type") == "🛒"]
+        base_requests = [(i, r) for i, r in enumerate(all_requests) if r.get("Type") == "🛒"]
 
     # ─── APPLY FILTERS ────────────────────────────────────────────
     def _matches_status(r):
         if status_filter == "All":
             return True
-        return r.get("Status","").upper() == status_filter
+        return (r.get("Status","").upper() == status_filter)
 
     def _matches_type(r):
         if type_filter == "All":
@@ -1123,20 +1114,20 @@ if st.session_state.page == "requests":
         return r.get("Type") == type_filter.split()[0]  # "💲" or "🛒"
 
     filtered_requests = [
-        r for r in base_requests
+        (i, r) for (i, r) in base_requests
         if r.get("Type") in {"💲","🛒"}
         and (search_term.lower() in json.dumps(r).lower())
         and _matches_status(r)
         and _matches_type(r)
     ]
 
-    def parse_eta(r):
+    def parse_eta(req_dict):
         try:
-            return datetime.strptime(r.get("ETA Date",""), "%Y-%m-%d").date()
-        except:
+            return datetime.strptime(req_dict.get("ETA Date",""), "%Y-%m-%d").date()
+        except Exception:
             return date.max
 
-    filtered_requests = sorted(filtered_requests, key=parse_eta)
+    filtered_requests = sorted(filtered_requests, key=lambda pair: parse_eta(pair[1]))
 
     # ─── EXPORT + NEW BUTTONS ─────────────────────────────────────
     col_exp, col_po, col_so = st.columns([3,1,1])
@@ -1159,7 +1150,7 @@ if st.session_state.page == "requests":
             return ", ".join(out)
 
         rows = []
-        for r in filtered_requests:
+        for _, r in filtered_requests:
             is_po = (r.get("Type") == "💲")
             row = {
                 "Type": r.get("Type",""),
@@ -1220,7 +1211,7 @@ if st.session_state.page == "requests":
 
         today = date.today()
 
-        def render_table(requests_list):
+        def render_table(pairs_list):  # list of (global_idx, req_dict)
             if user in PRICE_ALLOWED:
                 widths = [1,1,2,2,1,2,2,2,2,2,2,1]
                 headers = ["","Type","Ref#","Description","Qty","Cost/Sales Price","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
@@ -1232,32 +1223,37 @@ if st.session_state.page == "requests":
             for c,h in zip(cols_hdr, headers):
                 c.markdown(f"<div class='header-row'>{h}</div>", unsafe_allow_html=True)
 
-            for req in requests_list:
-                idx  = st.session_state.requests.index(req)
+            for global_idx, req in pairs_list:
                 cols = st.columns(widths)
 
-                comments_list = st.session_state.comments.get(str(idx), [])
+                # comments keyed by global index
+                comments_list = st.session_state.comments.get(str(global_idx), [])
                 for c in comments_list:
                     c.setdefault("read_by", [])
-                unread_cnt = sum(1 for c in comments_list if user not in c["read_by"] and c.get("author") != user)
-                cols[0].markdown(f"<span class='unread-badge'>💬{unread_cnt}</span>" if unread_cnt>0 else "", unsafe_allow_html=True)
+                unread_cnt = sum(
+                    1 for c in comments_list
+                    if user not in c["read_by"] and c.get("author") != user
+                )
+                cols[0].markdown(
+                    f"<span class='unread-badge'>💬{unread_cnt}</span>" if unread_cnt>0 else "",
+                    unsafe_allow_html=True
+                )
 
-                cols[1].markdown(f"<span class='type-icon'>{req['Type']}</span>", unsafe_allow_html=True)
-                cols[2].write(req.get("Invoice","") if req["Type"]=="💲" else req.get("Order#",""))
+                cols[1].markdown(f"<span class='type-icon'>{req.get('Type','')}</span>", unsafe_allow_html=True)
+                cols[2].write(req.get("Invoice","") if req.get("Type")=="💲" else req.get("Order#",""))
 
-                desc = req.get("Description",[])
-                cols[3].write(", ".join(desc) if isinstance(desc,list) else desc)
+                desc = req.get("Description", [])
+                cols[3].write(", ".join(desc) if isinstance(desc, list) else desc)
 
-                qty = req.get("Quantity",[])
-                cols[4].write(", ".join(map(str,qty)) if isinstance(qty,list) else qty)
+                qty = req.get("Quantity", [])
+                cols[4].write(", ".join(map(str, qty)) if isinstance(qty, list) else qty)
 
                 if user in PRICE_ALLOWED:
-                    raw_list = req.get("Cost",[]) if req["Type"]=="💲" else req.get("Sale Price",[])
+                    raw_list = req.get("Cost", []) if req.get("Type")=="💲" else req.get("Sale Price", [])
                     formatted = []
-                    for v in raw_list:
+                    for v in raw_list if isinstance(raw_list, list) else [raw_list]:
                         try:
-                            iv = int(float(v))
-                            formatted.append(f"${iv}")
+                            formatted.append(f"${int(float(v))}")
                         except:
                             formatted.append(str(v))
                     cols[5].write(", ".join(formatted))
@@ -1284,29 +1280,29 @@ if st.session_state.page == "requests":
                 action_idx = len(widths)-1
                 with cols[action_idx]:
                     a1, a2 = st.columns([1,1])
-                    if a1.button("🔍", key=f"view_{idx}"):
+                    if a1.button("🔍", key=f"view_{global_idx}"):
                         for c in comments_list:
                             if c.get("author") != user and user not in c["read_by"]:
                                 c["read_by"].append(user)
-                        save_data()  # persists JSON (and if your global save_data also exports, even better)
-                        st.session_state.selected_request = idx
+                        save_data()
+                        st.session_state.selected_request = global_idx
                         go_to("detail")
-                    if a2.button("❌", key=f"delete_{idx}"):
-                        delete_request(idx)
-                        # export after delete
+                    if a2.button("❌", key=f"delete_{global_idx}"):
+                        delete_request(global_idx)
                         try:
                             export_snapshot_to_disk()
                         except Exception as e:
                             st.warning(f"Auto-export failed: {e}")
+                        st.rerun()
 
         if user == "Bodega":
-            po_requests = [r for r in filtered_requests if r["Type"] == "💲"]
-            so_requests = [r for r in filtered_requests if r["Type"] == "🛒"]
+            po_pairs = [(i, r) for (i, r) in filtered_requests if r.get("Type") == "💲"]
+            so_pairs = [(i, r) for (i, r) in filtered_requests if r.get("Type") == "🛒"]
             st.subheader("📦 Purchase Orders")
-            render_table(po_requests) if po_requests else st.warning("No matching purchase requests found.")
+            render_table(po_pairs) if po_pairs else st.warning("No matching purchase requests found.")
             st.markdown("---")
             st.subheader("🛒 Sales Orders")
-            render_table(so_requests) if so_requests else st.warning("No matching sales requests found.")
+            render_table(so_pairs) if so_pairs else st.warning("No matching sales requests found.")
         else:
             render_table(filtered_requests)
     else:
@@ -1315,6 +1311,7 @@ if st.session_state.page == "requests":
     # ─── BACK TO HOME ─────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 ####
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
