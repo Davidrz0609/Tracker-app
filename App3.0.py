@@ -1327,11 +1327,53 @@ from datetime import datetime, date
 
 UPLOADS_DIR = "uploads"  # path to your uploads directory
 
+####
+
 # -------------------------------------------
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
 if st.session_state.page == "detail":
-    # Auto‑refresh comments every second
+    import os, time
+    import pandas as pd
+    from datetime import date, datetime
+
+    UPLOADS_DIR = "uploads"
+    os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+    # ── De-dupe helpers (avoid double posts during auto-refresh) ──
+    def _submit_comment_value(idx: int, value: str) -> bool:
+        txt = (value or "").strip()
+        if not txt:
+            return False
+        guard = st.session_state.setdefault("detail_comment_guard", {})
+        now = time.time()
+        sig = f"{st.session_state.user_name}|{txt}"
+        last = guard.get(str(idx))  # {"sig":..., "ts":...}
+        if last and last.get("sig") == sig and (now - last.get("ts", 0)) < 3.0:
+            return False
+        add_comment(idx, st.session_state.user_name, txt)
+        guard[str(idx)] = {"sig": sig, "ts": now}
+        st.session_state["detail_comment_guard"] = guard
+        return True
+
+    def _upload_attachment(idx: int, uploaded_file) -> bool:
+        if not uploaded_file:
+            return False
+        guard = st.session_state.setdefault("detail_upload_guard", {})
+        now = time.time()
+        last = guard.get(str(idx))  # {"name":..., "ts":...}
+        if last and last.get("name") == uploaded_file.name and (now - last.get("ts", 0)) < 3.0:
+            return False
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        fn = f"{idx}_{ts}_{uploaded_file.name}"
+        with open(os.path.join(UPLOADS_DIR, fn), "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        add_comment(idx, st.session_state.user_name, "", attachment=fn)
+        guard[str(idx)] = {"name": uploaded_file.name, "ts": now}
+        st.session_state["detail_upload_guard"] = guard
+        return True
+
+    # Auto-refresh comments every second
     _ = st_autorefresh(
         interval=1000,
         limit=None,
@@ -1417,7 +1459,6 @@ if st.session_state.page == "detail":
         st.markdown("### 🧾 Items")
         descs = request.get("Description", [])
         qtys  = request.get("Quantity", [])
-        # cost vs sale price field name
         price_key = "Cost" if is_purchase else "Sale Price"
         prices = request.get(price_key, [])
 
@@ -1426,57 +1467,32 @@ if st.session_state.page == "detail":
             c1, c2, c3 = st.columns([3, 1, 1])
             new_d = c1.text_input(f"Description #{i+1}", d, key=f"detail_desc_{i}")
             new_q = c2.text_input(f"Qty #{i+1}", q, key=f"detail_qty_{i}")
-            
-            # hide price input for Bodega
             if hide_prices:
-                c3.markdown("**—**")
-                new_p = p
+                c3.markdown("**—**"); new_p = p
             else:
                 new_p = c3.text_input(f"{price_key} #{i+1}", p, key=f"detail_price_{i}")
+            new_descs.append(new_d); new_qtys.append(new_q); new_prices.append(new_p)
 
-            new_descs.append(new_d)
-            new_qtys.append(new_q)
-            new_prices.append(new_p)
-
-        # detect changes to the items arrays
         if new_descs != descs:
             updated_fields["Description"] = new_descs
         if new_qtys != qtys:
-            # convert back to ints where possible
-            try:
-                updated_fields["Quantity"] = [int(x) for x in new_qtys]
-            except:
-                updated_fields["Quantity"] = new_qtys
+            try: updated_fields["Quantity"] = [int(x) for x in new_qtys]
+            except: updated_fields["Quantity"] = new_qtys
         if new_prices != prices:
-            # convert back to floats where possible
-            try:
-                updated_fields[price_key] = [float(x) for x in new_prices]
-            except:
-                updated_fields[price_key] = new_prices
+            try: updated_fields[price_key] = [float(x) for x in new_prices]
+            except: updated_fields[price_key] = new_prices
 
         st.markdown("### 🚚 Shipping Information")
-
-        # Order Date
         date_val = request.get("Date", str(date.today()))
-        order_date = st.date_input(
-            "Order Date",
-            value=pd.to_datetime(date_val),
-            key="detail_Date"
-        )
+        order_date = st.date_input("Order Date", value=pd.to_datetime(date_val), key="detail_Date")
         if str(order_date) != date_val:
             updated_fields["Date"] = str(order_date)
 
-        # ETA Date
         eta_val = request.get("ETA Date", str(date.today()))
-        eta_date = st.date_input(
-            "ETA Date",
-            value=pd.to_datetime(eta_val),
-            key="detail_ETA"
-        )
+        eta_date = st.date_input("ETA Date", value=pd.to_datetime(eta_val), key="detail_ETA")
         if str(eta_date) != eta_val:
             updated_fields["ETA Date"] = str(eta_date)
 
-        # Shipping Method
         ship_val = request.get("Shipping Method", " ")
         shipping_method = st.selectbox(
             "Shipping Method",
@@ -1488,7 +1504,6 @@ if st.session_state.page == "detail":
             updated_fields["Shipping Method"] = shipping_method
 
         st.markdown("---")
-        # Save / Delete / Back
         if updated_fields and st.button("💾 Save Changes", use_container_width=True):
             request.update(updated_fields)
             st.session_state.requests[index] = request
@@ -1520,7 +1535,6 @@ if st.session_state.page == "detail":
         """, unsafe_allow_html=True)
 
         existing_comments = st.session_state.comments.get(str(index), [])
-        # build author→color mapping
         authors = []
         for c in existing_comments:
             if c["author"] not in authors:
@@ -1542,7 +1556,6 @@ if st.session_state.page == "detail":
                 unsafe_allow_html=True
             )
 
-            # attachment
             if attachment:
                 file_path = os.path.join(UPLOADS_DIR, attachment)
                 st.markdown(
@@ -1554,7 +1567,6 @@ if st.session_state.page == "detail":
                     unsafe_allow_html=True
                 )
 
-            # text bubble
             if text:
                 bg = color_map.get(author, "#EDEDED")
                 text_color = "#FFF" if cls == "out" else "#000"
@@ -1567,24 +1579,14 @@ if st.session_state.page == "detail":
 
         st.markdown("---")
 
-        # Send on Enter callback
-        def send_on_enter():
-            msg = st.session_state[text_key].strip()
-            if msg:
-                add_comment(index, st.session_state.user_name, msg)
-                st.session_state[text_key] = ""
+        # Use a FORM (Enter submits once) + de-dupe guard
+        text_key = f"new_msg_{index}"
+        with st.form(key=f"detail_comment_form_{index}", clear_on_submit=True):
+            msg = st.text_input("Type your message here…", key=text_key, placeholder="Press Enter to send")
+            sent = st.form_submit_button("Send")
+            if sent and _submit_comment_value(index, msg):
                 st.rerun()
 
-        # text input that submits on Enter
-        text_key = f"new_msg_{index}"
-        st.text_input(
-            "Type your message here…",
-            key=text_key,
-            on_change=send_on_enter,
-            placeholder="Press enter to send"
-        )
-
-        # File uploader button
         uploaded_file = st.file_uploader(
             "Attach PDF, PNG or XLSX:",
             type=["pdf", "png", "xlsx"],
@@ -1593,13 +1595,10 @@ if st.session_state.page == "detail":
         _, cu = st.columns([1, 1])
         with cu:
             if st.button("Upload File", key=f"upload_file_{index}") and uploaded_file:
-                ts = datetime.now().strftime("%Y%m%d%H%M%S")
-                fn = f"{index}_{ts}_{uploaded_file.name}"
-                with open(os.path.join(UPLOADS_DIR, fn), "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                add_comment(index, st.session_state.user_name, "", attachment=fn)
-                st.success(f"Uploaded: {uploaded_file.name}")
-                st.rerun()
+                if _upload_attachment(index, uploaded_file):
+                    st.success(f"Uploaded: {uploaded_file.name}")
+                    st.rerun()
+
 ####
 elif st.session_state.page == "req_list":
     import streamlit as st
