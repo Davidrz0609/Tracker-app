@@ -1390,22 +1390,6 @@ if st.session_state.page == "requests":
 
 
 ####
-import streamlit as st
-from streamlit_autorefresh import st_autorefresh
-import pandas as pd
-import os
-from datetime import datetime, date
-
-# Assume these helper functions are defined elsewhere in your app:
-# add_comment(index, author, text, attachment)
-# save_data()
-# delete_request(index)
-# go_to(page_name)
-
-UPLOADS_DIR = "uploads"  # path to your uploads directory
-
-####
-
 # -------------------------------------------
 # ---------- REQUEST DETAILS PAGE -----------
 # -------------------------------------------
@@ -1417,7 +1401,43 @@ if st.session_state.page == "detail":
     UPLOADS_DIR = "uploads"
     os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-    # ── Helpers ─────────────────────────────────────────────────────
+    # ── Status-change helpers ──────────────────────────────────────
+    def _now_str():
+        return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Map status → bubble color (tweak to your palette)
+    STATUS_COLOR = {
+        " ":                      "#bdc3c7",
+        "Imprimir":               "#95a5a6",
+        "Impresa":                "#7f8c8d",
+        "Separar y Confirmar":    "#f39c12",
+        "Recibido / Procesando":  "#3498db",
+        "Pendiente":              "#f1c40f",
+        "Separado - Pendiente":   "#e67e22",
+        "Ready":                  "#27ae60",
+        "Complete":               "#2ecc71",
+        "Returned/Cancelled":     "#e74c3c",
+    }
+    def _status_color(s: str) -> str:
+        return STATUS_COLOR.get((s or "").strip(), "#7f8c8d")
+
+    def _log_status_change(idx: int, old_status: str, new_status: str, who: str):
+        """
+        Append a structured status-change event into the comments list.
+        Renderer below shows a centered colored bubble for this event.
+        """
+        entry = {
+            "author": who,
+            "when": _now_str(),
+            "text": "",
+            "status_change": {"old": old_status, "new": new_status}
+        }
+        key = str(idx)
+        comments = st.session_state.comments.setdefault(key, [])
+        comments.append(entry)
+        st.session_state.comments[key] = comments
+
+    # ── Helpers ────────────────────────────────────────────────────
     def _submit_comment_value(idx: int, value: str) -> bool:
         txt = (value or "").strip()
         if not txt:
@@ -1495,7 +1515,7 @@ if st.session_state.page == "detail":
         key=f"detail_comments_refresh_{st.session_state.selected_request}"
     )
 
-    # ── Validate selection ───────────────────────────────────────────
+    # ── Validate selection ─────────────────────────────────────────
     index = st.session_state.selected_request
     if index is None or index >= len(st.session_state.requests):
         st.error("Invalid request selected.")
@@ -1531,7 +1551,7 @@ if st.session_state.page == "detail":
             key="detail_Status"
         )
         if status != curr_status:
-            updated_fields["Status"] = status
+            updated_fields["Status"] = status  # mark for save + stamp
 
         # Tracking# / Invoice
         invoice_val = request.get("Invoice", "")
@@ -1587,7 +1607,7 @@ if st.session_state.page == "detail":
             else:
                 prices[i] = c3.text_input(f"{price_key} #{i+1}", prices[i], key=f"detail_price_{i}", placeholder="e.g. 1500")
 
-        # Big buttons like your screenshot
+        # Big buttons (add/remove)
         c_add, c_rem = st.columns([1, 1])
         with c_add:
             if st.button("➕ Add another item", use_container_width=True, key=f"add_item_{index}"):
@@ -1660,6 +1680,15 @@ if st.session_state.page == "detail":
 
         st.markdown("---")
         if updated_fields and st.button("💾 Save Changes", use_container_width=True):
+            # 1) Stamp status change BEFORE saving, if it changed
+            if "Status" in updated_fields:
+                _log_status_change(
+                    index,
+                    request.get("Status", " "),
+                    updated_fields["Status"],
+                    st.session_state.user_name
+                )
+            # 2) Persist the record
             request.update(updated_fields)
             st.session_state.requests[index] = request
             save_data()
@@ -1685,6 +1714,9 @@ if st.session_state.page == "detail":
                 .chat-attachment   { background:#DDEEFF; color:#003366; padding:8px 12px; border-radius:8px; float:left; max-width:60%; margin:4px 0; clear:both; word-wrap:break-word; }
                 .attachment-link   { color:#003366; text-decoration:none; font-weight:600; }
                 .clearfix          { clear:both; }
+                /* status-change bubble */
+                .status-change     { padding:8px 12px; border-radius:18px; color:#fff; text-align:center; max-width:60%; margin:8px auto; font-weight:600; }
+                .status-small      { font-size:12px; opacity:0.9; font-weight:500; margin-top:4px; }
             </style>
         """, unsafe_allow_html=True)
 
@@ -1697,6 +1729,22 @@ if st.session_state.page == "detail":
         color_map = {a: base_colors[i % len(base_colors)] for i, a in enumerate(authors)}
 
         for comment in existing_comments:
+            # special render for status change
+            if "status_change" in comment:
+                old_s = comment["status_change"].get("old","")
+                new_s = comment["status_change"].get("new","")
+                who   = comment.get("author","")
+                when  = comment.get("when","")
+                bg    = _status_color(new_s)
+                st.markdown(
+                    f'<div class="status-change" style="background:{bg};">'
+                    f'{who} cambió estado: <b>{old_s}</b> → <b>{new_s}</b>'
+                    f'<div class="status-small">{when}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                continue
+
             author = comment["author"]
             text = comment.get("text", "")
             when = comment.get("when", "")
