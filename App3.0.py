@@ -1496,8 +1496,8 @@ if st.session_state.page == "detail":
         ship_val = request.get("Shipping Method", " ")
         shipping_method = st.selectbox(
             "Shipping Method",
-            [" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"],
-            index=[" ", "Nivel 1 PU", "Nivel 3 PU", "Nivel 3 DEL"].index(ship_val),
+            [" ", "Nivel 1 Pick up", "Nivel 1 Delivery","Nivel 2 Pick up", "Nivel 2 Delivery",  "Nivel 3 Pick up", "Nivel 3 Delivery"],
+            index=[" ", "Nivel 1 Pick up", "Nivel 1 Delivery","Nivel 2 Pick up", "Nivel 2 Delivery",  "Nivel 3 Pick up", "Nivel 3 Delivery"].index(ship_val),
             key="detail_Shipping"
         )
         if shipping_method != ship_val:
