@@ -1206,17 +1206,43 @@ if st.session_state.page == "requests":
           .type-icon    { font-size:18px; }
           .unread-badge { background-color:#2ecc71; color:#fff; padding:4px 8px; border-radius:12px; display:inline-block; }
           .overdue-icon { color:#e74c3c; font-weight:600; font-size:14px; margin-left:6px; vertical-align:middle; }
+
+          /* chips styling */
+          .chips { max-width: 520px; white-space: normal; }
+          .chips span{
+            background:#f1f3f5;
+            border-radius:9999px;
+            padding:2px 8px;
+            margin:2px 4px 2px 0;
+            display:inline-block;
+            font-size:13px;
+          }
         </style>
         """, unsafe_allow_html=True)
 
         today = date.today()
+        import html as _html  # safe if already imported elsewhere
+
+        def make_chips(val, limit=3):
+            """Render list/str as chips + '+N more' with full tooltip."""
+            if val is None or val == "":
+                return ""
+            if not isinstance(val, list):
+                val = [val]
+            items = list(map(str, val))
+            first = items[:limit]
+            more  = max(0, len(items)-limit)
+            chips_html = "".join(f"<span>{_html.escape(x)}</span>" for x in first)
+            suffix = f"<span>+{more} more</span>" if more else ""
+            full_text = ", ".join(items)
+            return f"<div class='chips' title='{_html.escape(full_text)}'>{chips_html}{suffix}</div>"
 
         def render_table(pairs_list):  # list of (global_idx, req_dict)
             if user in PRICE_ALLOWED:
-                widths = [1,1,2,2,1,2,2,2,2,2,2,1]
+                widths = [1,1,2,5,2,2,2,2,2,2,2,2]
                 headers = ["","Type","Ref#","Description","Qty","Cost/Sales Price","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
             else:
-                widths = [1,1,2,3,1,2,2,2,2,2,1]
+                widths = [1,1,2,5,2,2,2,2,2,2,2]
                 headers = ["","Type","Ref#","Description","Qty","Status","Ordered Date","ETA Date","Shipping Method","Encargado",""]
 
             cols_hdr = st.columns(widths)
@@ -1242,21 +1268,23 @@ if st.session_state.page == "requests":
                 cols[1].markdown(f"<span class='type-icon'>{req.get('Type','')}</span>", unsafe_allow_html=True)
                 cols[2].write(req.get("Invoice","") if req.get("Type")=="💲" else req.get("Order#",""))
 
-                desc = req.get("Description", [])
-                cols[3].write(", ".join(desc) if isinstance(desc, list) else desc)
+                # Description as chips
+                cols[3].markdown(make_chips(req.get("Description", [])), unsafe_allow_html=True)
 
-                qty = req.get("Quantity", [])
-                cols[4].write(", ".join(map(str, qty)) if isinstance(qty, list) else qty)
+                # Qty as chips
+                cols[4].markdown(make_chips(req.get("Quantity", [])), unsafe_allow_html=True)
 
                 if user in PRICE_ALLOWED:
                     raw_list = req.get("Cost", []) if req.get("Type")=="💲" else req.get("Sale Price", [])
+                    if not isinstance(raw_list, list):
+                        raw_list = [raw_list]
                     formatted = []
-                    for v in raw_list if isinstance(raw_list, list) else [raw_list]:
+                    for v in raw_list:
                         try:
                             formatted.append(f"${int(float(v))}")
                         except:
                             formatted.append(str(v))
-                    cols[5].write(", ".join(formatted))
+                    cols[5].markdown(make_chips(formatted), unsafe_allow_html=True)
                     status_idx = 6
                 else:
                     status_idx = 5
@@ -1277,6 +1305,7 @@ if st.session_state.page == "requests":
                 cols[status_idx+3].write(req.get("Shipping Method",""))
                 cols[status_idx+4].write(req.get("Encargado",""))
 
+                # Action buttons
                 action_idx = len(widths)-1
                 with cols[action_idx]:
                     a1, a2 = st.columns([1,1])
@@ -1311,6 +1340,7 @@ if st.session_state.page == "requests":
     # ─── BACK TO HOME ─────────────────────────────────────────────
     if st.button("⬅ Back to Home"):
         go_to("home")
+
 
 ####
 import streamlit as st
@@ -2312,4 +2342,5 @@ elif st.session_state.page == "req_detail":
         purchase_order_dialog()
     if st.session_state.show_new_so:
         sales_order_dialog()
+
 
