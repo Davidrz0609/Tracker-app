@@ -7,6 +7,80 @@ from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 import snowflake.connector
+from snowflake_utils import save_requests_and_comments
+
+def save_data():
+    try:
+        save_requests_and_comments(
+            st.session_state.requests,
+            st.session_state.comments
+        )
+        st.toast("✅ Saved to Snowflake")
+    except Exception as e:
+        st.warning(f"⚠️ Failed to save to Snowflake: {e}")
+
+
+# ✅ HARDCODED CREDENTIALS — NOT SECURE FOR PUBLIC APPS
+SNOWFLAKE_ACCOUNT = "bfbwwgo-gv20595"  # REMOVE 'https://' and '.snowflakecomputing.com'
+SNOWFLAKE_USER = "davidrz0609"
+SNOWFLAKE_PASSWORD = "Pa436663047*12346"
+SNOWFLAKE_WAREHOUSE = "COMPUTE_WH"
+SNOWFLAKE_DATABASE = "HELP_CENTER"
+SNOWFLAKE_SCHEMA = "PUBLIC"
+
+def get_connection():
+    return snowflake.connector.connect(
+        user=SNOWFLAKE_USER,
+        password=SNOWFLAKE_PASSWORD,
+        account=SNOWFLAKE_ACCOUNT,
+        warehouse=SNOWFLAKE_WAREHOUSE,
+        database=SNOWFLAKE_DATABASE,
+        schema=SNOWFLAKE_SCHEMA,
+    )
+
+def load_requests_and_comments():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # ✅ Use UPPERCASE table names (no quotes = default Snowflake behavior)
+    cur.execute("SELECT DATA FROM REQUESTS ORDER BY ID")
+    requests = [json.loads(row[0]) for row in cur.fetchall()]
+
+    cur.execute("SELECT REQUEST_ID, COMMENT FROM COMMENTS")
+    raw_comments = cur.fetchall()
+
+    comments = {}
+    for req_id, comment in raw_comments:
+        comment_obj = json.loads(comment)
+        comments.setdefault(str(req_id), []).append(comment_obj)
+
+    cur.close()
+    conn.close()
+    return requests, comments
+
+def save_requests_and_comments(requests, comments):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # ✅ Clear existing data
+    cur.execute("TRUNCATE TABLE REQUESTS")
+    cur.execute("TRUNCATE TABLE COMMENTS")
+
+    # ✅ Insert new requests
+    for i, req in enumerate(requests):
+        cur.execute("INSERT INTO REQUESTS (DATA) VALUES (%s)", (json.dumps(req),))
+
+    # ✅ Insert new comments
+    for req_id, comment_list in comments.items():
+        for c in comment_list:
+            cur.execute(
+                "INSERT INTO COMMENTS (REQUEST_ID, COMMENT) VALUES (%s, %s)",
+                (int(req_id), json.dumps(c))
+            )
+
+    cur.close()
+    conn.close()
+
 
 
 # ----- PORTABLE EXPORT CONFIG (no secrets) -----
@@ -252,31 +326,18 @@ def format_status_badge(status):
 
 # Persistence Helpers
 
-def load_data():
-    # Load requests
-    if os.path.exists(REQUESTS_FILE) and os.path.getsize(REQUESTS_FILE) > 0:
-        try:
-            with open(REQUESTS_FILE, "r", encoding="utf-8") as f:
-                st.session_state.requests = json.load(f)
-        except json.JSONDecodeError:
-            st.session_state.requests = []
-    else:
-        st.session_state.requests = []
+from snowflake_utils import load_requests_and_comments
 
-    # Load comments
-    if os.path.exists(COMMENTS_FILE) and os.path.getsize(COMMENTS_FILE) > 0:
-        try:
-            with open(COMMENTS_FILE, "r", encoding="utf-8") as f:
-                st.session_state.comments = json.load(f)
-        except json.JSONDecodeError:
-            st.session_state.comments = {}
-    else:
+def load_data():
+    try:
+        requests, comments = load_requests_and_comments()
+        st.session_state.requests = requests
+        st.session_state.comments = comments
+    except Exception as e:
+        st.error(f"❌ Failed to load from Snowflake: {e}")
+        st.session_state.requests = []
         st.session_state.comments = {}
 
-    # --- NEW: if both are empty, try to restore from snapshot/CSVs ---
-    if not st.session_state.requests and not st.session_state.comments:
-        if try_restore_from_snapshot():
-            st.toast("Restored data from snapshot ✅", icon="✅")
 
 def export_snapshot_to_disk():
     """
@@ -406,17 +467,16 @@ def export_snapshot_to_disk():
         "json": json_path,
     }
 
-
-
 def save_data():
-    with open(REQUESTS_FILE, "w") as f:
-        json.dump(st.session_state.requests, f, indent=2)
-    with open(COMMENTS_FILE, "w") as f:
-        json.dump(st.session_state.comments, f, indent=2)
     try:
-        export_snapshot_to_disk()
+        save_requests_and_comments(
+            st.session_state.requests,
+            st.session_state.comments
+        )
+        st.toast("✅ Saved to Snowflake")
     except Exception as e:
-        st.warning(f"Auto-export failed: {e}")
+        st.warning(f"⚠️ Failed to save to Snowflake: {e}")
+
 
 
 def add_request(data):
