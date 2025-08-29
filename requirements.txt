@@ -16,3 +16,7 @@ boto3
 st-gsheets-connection
 streamlit_gsheet
 GSheetsConnection
+gspread==6.1.2
+oauth2client==4.1.3
+pandas==2.2.3
+streamlit==1.38.0
