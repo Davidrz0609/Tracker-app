@@ -28,16 +28,31 @@ def get_connection():
         schema=SNOWFLAKE_SCHEMA,
     )
 
+def _maybe_load_json(v):
+    # VARIANT often comes back as dict; if string, parse it.
+    if isinstance(v, (dict, list)):
+        return v
+    if isinstance(v, (bytes, bytearray)):
+        v = v.decode("utf-8", errors="ignore")
+    if isinstance(v, str) and v.strip():
+        try:
+            return json.loads(v)
+        except Exception:
+            return v
+    return v
+
 def load_requests_and_comments():
     conn = get_connection()
     cur = conn.cursor()
+    # REQUESTS
     cur.execute("SELECT DATA FROM REQUESTS ORDER BY ID")
-    requests = [json.loads(row[0]) for row in cur.fetchall()]
+    requests = [_maybe_load_json(row[0]) for row in cur.fetchall()]
+    # COMMENTS
     cur.execute("SELECT REQUEST_ID, COMMENT FROM COMMENTS")
     raw_comments = cur.fetchall()
     comments = {}
     for req_id, comment in raw_comments:
-        comment_obj = json.loads(comment)
+        comment_obj = _maybe_load_json(comment)
         comments.setdefault(str(req_id), []).append(comment_obj)
     cur.close()
     conn.close()
@@ -48,12 +63,17 @@ def save_requests_and_comments(requests, comments):
     cur = conn.cursor()
     cur.execute("TRUNCATE TABLE REQUESTS")
     cur.execute("TRUNCATE TABLE COMMENTS")
-    for i, req in enumerate(requests):
-        cur.execute("INSERT INTO REQUESTS (DATA) VALUES (%s)", (json.dumps(req),))
+    # Insert requests (ensure VARIANT via PARSE_JSON)
+    for req in requests:
+        cur.execute(
+            "INSERT INTO REQUESTS (DATA) SELECT PARSE_JSON(%s)",
+            (json.dumps(req),)
+        )
+    # Insert comments (ensure VARIANT via PARSE_JSON)
     for req_id, comment_list in comments.items():
         for c in comment_list:
             cur.execute(
-                "INSERT INTO COMMENTS (REQUEST_ID, COMMENT) VALUES (%s, %s)",
+                "INSERT INTO COMMENTS (REQUEST_ID, COMMENT) SELECT %s, PARSE_JSON(%s)",
                 (int(req_id), json.dumps(c))
             )
     cur.close()
@@ -222,7 +242,6 @@ def format_status_badge(status):
         "PENDIENTE":            "#95a5a6",
         "SEPARADO - PENDIENTE": "#d35400",
         "RETURNED/CANCELLED":   "#c0392b"
-
     }
     color = color_map.get(status, "#7f8c8d")
     return f"""
@@ -237,19 +256,7 @@ def format_status_badge(status):
     ">{status}</span>
     """
 
-# Persistence Helpers
-
-
-def load_data():
-    try:
-        requests, comments = load_requests_and_comments()
-        st.session_state.requests = REQUESTS
-        st.session_state.comments = COMMENTS
-    except Exception as e:
-        st.error(f"❌ Failed to load from Snowflake: {e}")
-        st.session_state.requests = []
-        st.session_state.comments = {}
-
+# (removed the broken duplicate load_data here)
 
 def export_snapshot_to_disk():
     """
@@ -259,7 +266,6 @@ def export_snapshot_to_disk():
       - JSON snapshot with full structure (requests + comments)
     Uses EXPORT_* globals if present; otherwise derives paths from EXPORT_DIR or ./exports.
     """
-    # ── Resolve paths (robust if some globals are missing) ─────────────────────────
     from pathlib import Path
     export_dir = Path(globals().get("EXPORT_DIR", Path.cwd() / "exports"))
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -270,18 +276,16 @@ def export_snapshot_to_disk():
     xlsx_path     = globals().get("EXPORT_XLSX",             str(export_dir / "HelpCenter_Snapshot.xlsx"))
     json_path     = globals().get("EXPORT_JSON",             str(export_dir / "HelpCenter_Snapshot.json"))
 
-    # ── Build Orders (PO/SO) — one row per item ───────────────────────────────────
+    # Orders
     orders_rows = []
     for i, r in enumerate(st.session_state.get("requests", []) or []):
         t = r.get("Type")
         if t not in ("💲", "🛒"):
             continue
-
         descs  = r.get("Description") or []
         qtys   = r.get("Quantity") or []
         price_key = "Cost" if t == "💲" else "Sale Price"
         prices = r.get(price_key) or []
-
         n = max(len(descs), len(qtys), len(prices), 1)
         for j in range(n):
             orders_rows.append({
@@ -302,7 +306,7 @@ def export_snapshot_to_disk():
             })
     orders_df = pd.DataFrame(orders_rows)
 
-    # ── Requirements (📑) — one row per item ──────────────────────────────────────
+    # Requirements
     req_rows = []
     for i, r in enumerate(st.session_state.get("requests", []) or []):
         if r.get("Type") != "📑":
@@ -321,7 +325,7 @@ def export_snapshot_to_disk():
             })
     req_df = pd.DataFrame(req_rows)
 
-    # ── Comments ──────────────────────────────────────────────────────────────────
+    # Comments
     comments_rows = []
     for k, comments in (st.session_state.get("comments", {}) or {}).items():
         try:
@@ -338,12 +342,12 @@ def export_snapshot_to_disk():
             })
     comments_df = pd.DataFrame(comments_rows)
 
-    # ── Write CSVs ────────────────────────────────────────────────────────────────
+    # Write CSVs
     orders_df.to_csv(orders_csv, index=False, encoding="utf-8-sig")
     req_df.to_csv(reqs_csv, index=False, encoding="utf-8-sig")
     comments_df.to_csv(comments_csv, index=False, encoding="utf-8-sig")
 
-    # ── Write Excel (fallback if the file is open) ────────────────────────────────
+    # Write Excel
     try:
         with pd.ExcelWriter(xlsx_path) as xls:
             orders_df.to_excel(xls, index=False, sheet_name="Orders")
@@ -359,7 +363,7 @@ def export_snapshot_to_disk():
         xlsx_out = str(alt)
         st.warning(f"Excel is open. Saved snapshot to {alt}.")
 
-    # ── Write JSON snapshot (authoritative restore source) ────────────────────────
+    # Write JSON snapshot
     try:
         snap = {
             "requests": st.session_state.get("requests", []),
@@ -370,7 +374,6 @@ def export_snapshot_to_disk():
     except Exception as e:
         st.warning(f"Snapshot JSON not saved: {e}")
 
-    # Optional: return paths for logging/diagnostics
     return {
         "orders_csv": orders_csv,
         "requirements_csv": reqs_csv,
@@ -389,14 +392,11 @@ def save_data():
     except Exception as e:
         st.warning(f"⚠️ Failed to save to Snowflake: {e}")
 
-
-
 def add_request(data):
     idx = len(st.session_state.requests)
     st.session_state.requests.append(data)
     st.session_state.comments[str(idx)] = []
     save_data()
-
 
 def add_comment(index, author, text="", attachment=None):
     key = str(index)
@@ -412,7 +412,6 @@ def add_comment(index, author, text="", attachment=None):
     st.session_state.comments[key].append(comment_entry)
     save_data()
 
-
 def delete_request(index):
     if 0 <= index < len(st.session_state.requests):
         st.session_state.requests.pop(index)
@@ -424,7 +423,6 @@ def delete_request(index):
         st.success("🗑️ Request deleted successfully.")
         st.session_state.page = "requests"
         st.rerun()
-
 
 def go_to(page):
     st.session_state.page = page
@@ -441,6 +439,7 @@ if "requests" not in st.session_state or "comments" not in st.session_state:
     load_data()
 if "selected_request" not in st.session_state:
     st.session_state.selected_request = None
+
 
 # -------------------------------------------
 # ---------------- LOGIN PAGE ----------------
