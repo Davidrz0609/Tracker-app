@@ -7,21 +7,11 @@ from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 import snowflake.connector
-from snowflake_utils import save_requests_and_comments
-
-def save_data():
-    try:
-        save_requests_and_comments(
-            st.session_state.requests,
-            st.session_state.comments
-        )
-        st.toast("✅ Saved to Snowflake")
-    except Exception as e:
-        st.warning(f"⚠️ Failed to save to Snowflake: {e}")
-
+from pathlib import Path
+import platform
 
 # ✅ HARDCODED CREDENTIALS — NOT SECURE FOR PUBLIC APPS
-SNOWFLAKE_ACCOUNT = "bfbwwgo-gv20595"  # REMOVE 'https://' and '.snowflakecomputing.com'
+SNOWFLAKE_ACCOUNT = "bfbwwgo-gv20595"
 SNOWFLAKE_USER = "davidrz0609"
 SNOWFLAKE_PASSWORD = "Pa436663047*12346"
 SNOWFLAKE_WAREHOUSE = "COMPUTE_WH"
@@ -41,19 +31,14 @@ def get_connection():
 def load_requests_and_comments():
     conn = get_connection()
     cur = conn.cursor()
-
-    # ✅ Use UPPERCASE table names (no quotes = default Snowflake behavior)
     cur.execute("SELECT DATA FROM REQUESTS ORDER BY ID")
     requests = [json.loads(row[0]) for row in cur.fetchall()]
-
     cur.execute("SELECT REQUEST_ID, COMMENT FROM COMMENTS")
     raw_comments = cur.fetchall()
-
     comments = {}
     for req_id, comment in raw_comments:
         comment_obj = json.loads(comment)
         comments.setdefault(str(req_id), []).append(comment_obj)
-
     cur.close()
     conn.close()
     return requests, comments
@@ -61,34 +46,30 @@ def load_requests_and_comments():
 def save_requests_and_comments(requests, comments):
     conn = get_connection()
     cur = conn.cursor()
-
-    # ✅ Clear existing data
     cur.execute("TRUNCATE TABLE REQUESTS")
     cur.execute("TRUNCATE TABLE COMMENTS")
-
-    # ✅ Insert new requests
     for i, req in enumerate(requests):
         cur.execute("INSERT INTO REQUESTS (DATA) VALUES (%s)", (json.dumps(req),))
-
-    # ✅ Insert new comments
     for req_id, comment_list in comments.items():
         for c in comment_list:
             cur.execute(
                 "INSERT INTO COMMENTS (REQUEST_ID, COMMENT) VALUES (%s, %s)",
                 (int(req_id), json.dumps(c))
             )
-
     cur.close()
     conn.close()
 
-
-
-# ----- PORTABLE EXPORT CONFIG (no secrets) -----
-from pathlib import Path
-import os, platform
+def save_data():
+    try:
+        save_requests_and_comments(
+            st.session_state.requests,
+            st.session_state.comments
+        )
+        st.toast("✅ Saved to Snowflake")
+    except Exception as e:
+        st.warning(f"⚠️ Failed to save to Snowflake: {e}")
 
 def choose_export_dir() -> Path:
-    # 1) If you set HELP_CENTER_EXPORT_DIR in Streamlit Cloud (optional), use it
     env = os.environ.get("HELP_CENTER_EXPORT_DIR")
     if env:
         p = Path(env).expanduser()
@@ -96,18 +77,14 @@ def choose_export_dir() -> Path:
             p.mkdir(parents=True, exist_ok=True)
             return p
         except Exception:
-            pass  # fall through
-
-    # 2) Local Mac dev: ~/Downloads/Automation_Project_Titos
+            pass
     if platform.system() == "Darwin":
         mac_path = Path.home() / "Downloads" / "Automation_Project_Titos"
         try:
             mac_path.mkdir(parents=True, exist_ok=True)
             return mac_path
         except Exception:
-            pass  # fall through
-
-    # 3) Fallback: repo-local ./exports (works in Codespaces & Streamlit Cloud)
+            pass
     p = Path.cwd() / "exports"
     p.mkdir(parents=True, exist_ok=True)
     return p
@@ -119,150 +96,86 @@ EXPORT_COMMENTS_CSV     = str(EXPORT_DIR / "comments.csv")
 EXPORT_XLSX             = str(EXPORT_DIR / "HelpCenter_Snapshot.xlsx")
 EXPORT_JSON             = str(EXPORT_DIR / "HelpCenter_Snapshot.json")
 
+def format_status_badge(status):
+    status = status.upper()
+    color_map = {
+        "IN TRANSIT": "#f39c12", "READY": "#2ecc71", "COMPLETE": "#3498db",
+        "ORDERED": "#9b59b6", "CANCELLED": "#e74c3c", "IMPRIMIR": "#f1c40f",
+        "IMPRESA": "#27ae60", "SEPARAR Y CONFIRMAR": "#1abc9c",
+        "RECIBIDO / PROCESANDO": "#2980b9", "PENDIENTE": "#95a5a6",
+        "SEPARADO - PENDIENTE": "#d35400", "RETURNED/CANCELLED": "#c0392b"
+    }
+    color = color_map.get(status, "#7f8c8d")
+    return f"""
+    <span style="
+        background-color: {color};
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        display: inline-block;
+    ">{status}</span>
+    """
 
-
-def rebuild_from_csvs():
-    """Fallback: rebuild requests/comments from the exported CSVs."""
-    import pandas as pd
-
-    reqs_by_old = {}
-
-    # Orders (PO/SO)
-    if os.path.exists(EXPORT_ORDERS_CSV) and os.path.getsize(EXPORT_ORDERS_CSV) > 0:
-        odf = pd.read_csv(EXPORT_ORDERS_CSV).fillna("")
-        for old_idx, g in odf.groupby("RequestIndex"):
-            t    = str(g["Type"].iloc[0])                 # "💲" or "🛒"
-            ref  = str(g["Ref#"].iloc[0])
-            stat = str(g["Status"].iloc[0])
-            dte  = str(g["Ordered Date"].iloc[0])
-            eta  = str(g["ETA Date"].iloc[0])
-            ship = str(g["Shipping Method"].iloc[0])
-            enc  = str(g["Encargado"].iloc[0])
-            pago = str(g["Pago"].iloc[0])
-            partner = str(g["Partner"].iloc[0])
-
-            descs  = [str(x) for x in g["Description"].tolist()]
-            qtys   = [x for x in g["Qty"].tolist()]
-            prices = [x for x in g["Price"].tolist()]
-
-            base = {
-                "Status": stat,
-                "Date": dte,
-                "ETA Date": eta,
-                "Shipping Method": ship,
-                "Encargado": enc,
-                "Pago": pago,
-                "Description": descs,
-                "Quantity": qtys,
-            }
-
-            if t == "💲":
-                req = {**base,
-                    "Type": "💲",
-                    "Invoice": ref,
-                    "Order#": "",
-                    "Cost": prices,
-                    "Proveedor": partner
-                }
-            else:
-                req = {**base,
-                    "Type": "🛒",
-                    "Order#": ref,
-                    "Invoice": "",
-                    "Sale Price": prices,
-                    "Cliente": partner
-                }
-            reqs_by_old[int(old_idx)] = req
-
-    # Requirements (📑)
-    if os.path.exists(EXPORT_REQUIREMENTS_CSV) and os.path.getsize(EXPORT_REQUIREMENTS_CSV) > 0:
-        rdf = pd.read_csv(EXPORT_REQUIREMENTS_CSV).fillna("")
-        for old_idx, g in rdf.groupby("RequestIndex"):
-            items = []
-            for _, row in g.iterrows():
-                items.append({
-                    "Description": str(row.get("Description","")),
-                    "Target Price": str(row.get("Target Price","")),
-                    "QTY": row.get("Qty","")
-                })
-            reqs_by_old[int(old_idx)] = {
-                "Type": "📑",
-                "Items": items,
-                "Vendedor Encargado": str(g["Vendedor Encargado"].iloc[0]) if "Vendedor Encargado" in g else "",
-                "Comprador Encargado": str(g["Comprador Encargado"].iloc[0]) if "Comprador Encargado" in g else "",
-                "Fecha": str(g["Fecha"].iloc[0]) if "Fecha" in g else "",
-                "Status": str(g["Status"].iloc[0]) if "Status" in g else "OPEN",
-            }
-
-    # Comments
-    comments_old = {}
-    if os.path.exists(EXPORT_COMMENTS_CSV) and os.path.getsize(EXPORT_COMMENTS_CSV) > 0:
-        cdf = pd.read_csv(EXPORT_COMMENTS_CSV).fillna("")
-        for old_idx, g in cdf.groupby("RequestIndex"):
-            lst = []
-            for _, row in g.iterrows():
-                entry = {
-                    "author": str(row.get("Author","")),
-                    "when": str(row.get("When","")),
-                    "text": str(row.get("Text","")),
-                }
-                att = str(row.get("Attachment",""))
-                if att.strip():
-                    entry["attachment"] = att
-                lst.append(entry)
-            comments_old[int(old_idx)] = lst
-
-    # Reindex requests contiguously and remap comment keys
-    sorted_pairs = sorted(reqs_by_old.items())  # [(old_idx, req), ...]
-    requests, idx_map = [], {}
-    for new_idx, (old_idx, req) in enumerate(sorted_pairs):
-        idx_map[old_idx] = new_idx
-        requests.append(req)
-
-    comments = {}
-    for old_idx, lst in comments_old.items():
-        if old_idx in idx_map:
-            comments[str(idx_map[old_idx])] = lst
-
-    return requests, comments
-
-
-def try_restore_from_snapshot():
-    """If local JSONs are empty/missing, restore from snapshot JSON, else from CSVs."""
-    # Prefer JSON snapshot (exact structure)
-    if os.path.exists(EXPORT_JSON) and os.path.getsize(EXPORT_JSON) > 0:
-        try:
-            with open(EXPORT_JSON, "r", encoding="utf-8") as f:
-                snap = json.load(f)
-            st.session_state.requests = snap.get("requests", [])
-            st.session_state.comments = snap.get("comments", {})
-            # write back the primary JSONs so normal load() works next run
-            with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(st.session_state.requests, f, ensure_ascii=False, indent=2)
-            with open(COMMENTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(st.session_state.comments, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            st.warning(f"JSON snapshot restore failed: {e}")
-
-    # Fallback: rebuild from CSVs
+def load_data():
     try:
-        requests, comments = rebuild_from_csvs()
-        if requests:
-            st.session_state.requests = requests
-            st.session_state.comments = comments
-            with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(requests, f, ensure_ascii=False, indent=2)
-            with open(COMMENTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(comments, f, ensure_ascii=False, indent=2)
-            return True
+        requests, comments = load_requests_and_comments()
+        st.session_state.requests = requests
+        st.session_state.comments = comments
     except Exception as e:
-        st.warning(f"CSV restore failed: {e}")
+        st.error(f"❌ Failed to load from Snowflake: {e}")
+        st.session_state.requests = []
+        st.session_state.comments = {}
 
-    return False
+def add_request(data):
+    idx = len(st.session_state.requests)
+    st.session_state.requests.append(data)
+    st.session_state.comments[str(idx)] = []
+    save_data()
 
+def add_comment(index, author, text="", attachment=None):
+    key = str(index)
+    if key not in st.session_state.comments:
+        st.session_state.comments[key] = []
+    comment_entry = {
+        "author": author,
+        "text": text,
+        "when": datetime.now().strftime("%Y-%m-%d %H:%M")
+    }
+    if attachment:
+        comment_entry["attachment"] = attachment
+    st.session_state.comments[key].append(comment_entry)
+    save_data()
 
+def delete_request(index):
+    if 0 <= index < len(st.session_state.requests):
+        st.session_state.requests.pop(index)
+        st.session_state.comments.pop(str(index), None)
+        st.session_state.comments = {
+            str(i): st.session_state.comments.get(str(i), [])
+            for i in range(len(st.session_state.requests))
+        }
+        save_data()
+        st.success("🗑️ Request deleted successfully.")
+        st.session_state.page = "requests"
+        st.rerun()
 
+def go_to(page):
+    st.session_state.page = page
+    st.rerun()
+
+# Session state initialization
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
+if "page" not in st.session_state:
+    st.session_state.page = "login"
+if "requests" not in st.session_state or "comments" not in st.session_state:
+    load_data()
+if "selected_request" not in st.session_state:
+    st.session_state.selected_request = None
 
 
 
@@ -326,13 +239,12 @@ def format_status_badge(status):
 
 # Persistence Helpers
 
-from snowflake_utils import load_requests_and_comments
 
 def load_data():
     try:
         requests, comments = load_requests_and_comments()
-        st.session_state.requests = requests
-        st.session_state.comments = comments
+        st.session_state.requests = REQUESTS
+        st.session_state.comments = COMMENTS
     except Exception as e:
         st.error(f"❌ Failed to load from Snowflake: {e}")
         st.session_state.requests = []
