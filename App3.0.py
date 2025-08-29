@@ -6,8 +6,7 @@ import os
 from datetime import date, datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
-
-
+import snowflake.connector
 
 
 # ----- PORTABLE EXPORT CONFIG (no secrets) -----
